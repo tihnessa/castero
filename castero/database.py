@@ -654,4 +654,4 @@ class Database:
         added_episodes = self.episodes(new_feed)
         for episode in added_episodes:
             if str(episode) in episode_progresses:
-                self.replace_progress(episode, episode.progress)
+                self.replace_progress(episode, episode_progresses[str(episode)])
