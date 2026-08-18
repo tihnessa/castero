@@ -36,18 +36,21 @@ class Database:
     SQL_EPISODES_WITH_PROGRESS = "select episode.feed_key, episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time from episode left join progress on episode.id=progress.ep_id order by episode.id"
     SQL_EPISODES_BY_ID = "select episode.feed_key, episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time from episode left join progress on episode.id=progress.ep_id where episode.id=?"
     SQL_UNPLAYED_EPISODES_BY_FEED = "select episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time from episode left join progress on episode.id=progress.ep_id where feed_key=? and played=0 order by episode.id"
-    SQL_EPISODE_REPLACE = "replace into episode (id, title, feed_key, description, link, pubdate, copyright, enclosure, played)\nvalues (?,?,?,?,?,?,?,?,?)"
-    SQL_EPISODE_REPLACE_NOID = "replace into episode (title, feed_key, description, link, pubdate, copyright, enclosure, played)\nvalues (?,?,?,?,?,?,?,?)"
+    SQL_EPISODE_INSERT = "insert into episode (id, title, feed_key, description, link, pubdate, copyright, enclosure, played)\nvalues (?,?,?,?,?,?,?,?,?)"
+    SQL_EPISODE_INSERT_NOID = "insert into episode (title, feed_key, description, link, pubdate, copyright, enclosure, played)\nvalues (?,?,?,?,?,?,?,?)"
+    SQL_EPISODE_UPDATE = "update episode set title=?, feed_key=?, description=?, link=?, pubdate=?, copyright=?, enclosure=?, played=? where id=?"
     SQL_FEEDS_ALL = (
         "select key, title, description, link, last_build_date, copyright from feed order by lower(title)"
     )
     SQL_FEED_BY_KEY = (
         "select key, title, description, link, last_build_date, copyright from feed where key=?"
     )
-    SQL_FEED_REPLACE = (
-        "replace into feed (key, title, description, link, last_build_date, copyright)\nvalues (?,?,?,?,?,?)"
+    SQL_FEED_INSERT = (
+        "insert into feed (key, title, description, link, last_build_date, copyright)\nvalues (?,?,?,?,?,?)"
     )
+    SQL_FEED_UPDATE = "update feed set title=?, description=?, link=?, last_build_date=?, copyright=? where key=?"
     SQL_FEED_DELETE = "delete from feed where key=?"
+    SQL_EPISODE_DELETE = "delete from episode where id=?"
     SQL_QUEUE_ALL = "select id, ep_id from queue"
     SQL_QUEUE_REPLACE = "replace into queue (id, ep_id)\nvalues (?,?)"
     SQL_QUEUE_DELETE = "delete from queue"
@@ -144,7 +147,7 @@ class Database:
             feed_dict = content[key]
 
             cursor.execute(
-                self.SQL_FEED_REPLACE,
+                self.SQL_FEED_INSERT,
                 (
                     key,
                     feed_dict["title"],
@@ -157,7 +160,7 @@ class Database:
 
             for episode_dict in feed_dict["episodes"]:
                 cursor.execute(
-                    self.SQL_EPISODE_REPLACE_NOID,
+                    self.SQL_EPISODE_INSERT_NOID,
                     (
                         episode_dict["title"],
                         key,
@@ -192,9 +195,28 @@ class Database:
         """
         cursor = self._conn.cursor()
         cursor.execute(
-            self.SQL_FEED_REPLACE,
-            (feed.key, feed.title, feed.description, feed.link, feed.last_build_date, feed.copyright),
+            self.SQL_FEED_UPDATE,
+            (
+                feed.title,
+                feed.description,
+                feed.link,
+                feed.last_build_date,
+                feed.copyright,
+                feed.key,
+            ),
         )
+        if cursor.rowcount == 0:
+            cursor.execute(
+                self.SQL_FEED_INSERT,
+                (
+                    feed.key,
+                    feed.title,
+                    feed.description,
+                    feed.link,
+                    feed.last_build_date,
+                    feed.copyright,
+                ),
+            )
         self._conn.commit()
 
     def replace_episode(self, feed: Feed, episode: Episode) -> None:
@@ -213,7 +235,7 @@ class Database:
         cursor = self._conn.cursor()
         if episode.ep_id is None:
             cursor.execute(
-                self.SQL_EPISODE_REPLACE_NOID,
+                self.SQL_EPISODE_INSERT_NOID,
                 (
                     episode.title,
                     feed.key,
@@ -228,9 +250,8 @@ class Database:
             episode.ep_id = cursor.lastrowid
         else:
             cursor.execute(
-                self.SQL_EPISODE_REPLACE,
+                self.SQL_EPISODE_UPDATE,
                 (
-                    episode.ep_id,
                     episode.title,
                     feed.key,
                     episode.description,
@@ -239,8 +260,24 @@ class Database:
                     episode.copyright,
                     episode.enclosure,
                     episode.played,
+                    episode.ep_id,
                 ),
             )
+            if cursor.rowcount == 0:
+                cursor.execute(
+                    self.SQL_EPISODE_INSERT,
+                    (
+                        episode.ep_id,
+                        episode.title,
+                        feed.key,
+                        episode.description,
+                        episode.link,
+                        episode.pubdate,
+                        episode.copyright,
+                        episode.enclosure,
+                        episode.played,
+                    ),
+                )
         self._conn.commit()
 
     def replace_episodes(self, feed: Feed, episodes: List[Episode]) -> None:
@@ -266,7 +303,7 @@ class Database:
 
         if len(episodes_without_id) > 0:
             cursor.executemany(
-                self.SQL_EPISODE_REPLACE_NOID,
+                self.SQL_EPISODE_INSERT_NOID,
                 (
                     (
                         episode.title,
@@ -282,11 +319,10 @@ class Database:
                 ),
             )
         if len(episodes_with_id) > 0:
-            cursor.executemany(
-                self.SQL_EPISODE_REPLACE,
-                (
+            for episode in episodes_with_id:
+                cursor.execute(
+                    self.SQL_EPISODE_UPDATE,
                     (
-                        episode.ep_id,
                         episode.title,
                         feed.key,
                         episode.description,
@@ -295,10 +331,32 @@ class Database:
                         episode.copyright,
                         episode.enclosure,
                         episode.played,
+                        episode.ep_id,
+                    ),
+                )
+                if cursor.rowcount == 0:
+                    cursor.execute(
+                        self.SQL_EPISODE_INSERT,
+                        (
+                            episode.ep_id,
+                            episode.title,
+                            feed.key,
+                            episode.description,
+                            episode.link,
+                            episode.pubdate,
+                            episode.copyright,
+                            episode.enclosure,
+                            episode.played,
+                        ),
                     )
-                    for episode in episodes_with_id
-                ),
-            )
+        self._conn.commit()
+
+    def _delete_episodes(self, episodes: List[Episode]) -> None:
+        """Delete episodes and any user data attached to them."""
+        cursor = self._conn.cursor()
+        cursor.executemany(
+            self.SQL_EPISODE_DELETE, ((episode.ep_id,) for episode in episodes)
+        )
         self._conn.commit()
 
     def delete_queue(self) -> None:
@@ -649,6 +707,19 @@ class Database:
         # update the feed and its episodes in the database
         self.replace_feed(new_feed)
         self.replace_episodes(new_feed, new_episodes)
+
+        # Feed replacement used to delete every old episode through a foreign
+        # key cascade. Retained episodes are now updated in place, so remove
+        # only episodes that disappeared or were excluded by max_episodes.
+        retained_episode_ids = {
+            episode.ep_id for episode in new_episodes if episode.ep_id is not None
+        }
+        removed_episodes = [
+            episode
+            for episode in old_episodes
+            if episode.ep_id not in retained_episode_ids
+        ]
+        self._delete_episodes(removed_episodes)
 
         # ensure episodes have their progress carried over, if necessary
         added_episodes = self.episodes(new_feed)

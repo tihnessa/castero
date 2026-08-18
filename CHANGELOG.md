@@ -16,6 +16,8 @@ See also <https://github.com/xgi/castero/releases>.
 **Fixed**
 * OPML imports now discover feeds in every nested folder instead of only the
 first folder branch.
+* Refreshing a feed no longer removes its retained episodes from the saved
+playback queue.
 
 ## 0.9.5 - 2021-04-02
 **Added**

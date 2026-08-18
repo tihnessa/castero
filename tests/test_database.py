@@ -5,6 +5,7 @@ from unittest import mock
 from castero.episode import Episode
 from castero.feed import Feed
 from castero.database import Database
+from castero.config import Config
 from castero.queue import Queue
 from castero.player import Player
 
@@ -244,6 +245,41 @@ def test_database_reload_preserves_episode_progress(prevent_modification):
     reloaded_episodes = {episode.title: episode for episode in mydatabase.episodes(reloaded_feed)}
     assert reloaded_episodes[episodes[0].title].progress == 42000
     assert reloaded_episodes[episodes[1].title].progress == 0
+
+
+def test_database_reload_preserves_queued_retained_episode(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, myfeed.parse_episodes())
+
+    episodes = mydatabase.episodes(myfeed)
+    retained_episode_id = episodes[0].ep_id
+
+    myqueue = Queue(display)
+    for episode in episodes:
+        player = mock.MagicMock(spec=Player)
+        player.episode = episode
+        myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    reloaded_feed._description = "updated feed description"
+    reloaded_episodes = reloaded_feed.parse_episodes()
+    reloaded_episodes[0]._description = "updated episode description"
+    reloaded_feed.parse_episodes = mock.MagicMock(return_value=reloaded_episodes)
+    Config.data["max_episodes"] = "1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    queued_episodes = mydatabase.queue()
+    assert len(queued_episodes) == 1
+    assert queued_episodes[0].ep_id == retained_episode_id
+    assert queued_episodes[0].description == "updated episode description"
+    assert mydatabase.feed(reloaded_feed.key).description == "updated feed description"
+    assert len(mydatabase.episodes(reloaded_feed)) == 1
 
 
 def test_database_replace_queue(display):
