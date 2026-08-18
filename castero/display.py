@@ -498,6 +498,7 @@ class Display:
                 should_delete = self._get_y_n("Are you sure you want to delete this feed? (y/n): ")
             if should_delete:
                 for episode in self.database.episodes(feed):
+                    self._download_queue.remove(episode)
                     episode.delete()
                 self.database.delete_feed(feed)
                 self.menus_valid = False

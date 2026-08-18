@@ -114,6 +114,7 @@ class Episode:
         if self._enclosure is None:
             if display is not None:
                 display.change_status("Download failed: episode does not have" " a valid media source")
+            download_queue.next()
             return
 
         feed_directory = self._feed_directory()

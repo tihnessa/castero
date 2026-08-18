@@ -190,6 +190,44 @@ def test_display_delete_feed_deletes_downloaded_episodes(display, tmp_path):
     assert display.database.feeds() == []
 
 
+def test_display_delete_feed_removes_pending_download(display):
+    feed = Feed(
+        url="feed url",
+        title="feed title",
+        description="feed description",
+        link="feed link",
+        last_build_date="feed last_build_date",
+        copyright="feed copyright",
+        episodes=[],
+    )
+    episode = Episode(feed, title="queued episode", enclosure="episode.mp3")
+    display.database.replace_feed(feed)
+    display.database.replace_episode(feed, episode)
+    episode.download = mock.MagicMock()
+    display._download_queue.add(episode)
+
+    display.delete_feed(feed)
+    display._download_queue.update()
+
+    assert display._download_queue.length == 0
+    episode.download.assert_not_called()
+
+
+def test_display_delete_feed_cancels_active_download(display):
+    feed = Feed(url="feed url", title="feed title")
+    episode = Episode(feed, title="active episode", enclosure="episode.mp3")
+    display.database.replace_feed(feed)
+    display.database.replace_episode(feed, episode)
+    episode.download = mock.MagicMock()
+    display._download_queue.add(episode)
+    display._download_queue.start()
+
+    display.delete_feed(feed)
+
+    assert display._download_queue.length == 0
+    assert display._download_queue.cancelled
+
+
 def test_display_execute_command(display):
     fname = "test_display_execute_command_output.mp3"
     myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")

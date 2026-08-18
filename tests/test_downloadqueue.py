@@ -28,6 +28,49 @@ def test_downloadqueue_add():
     assert mydownloadqueue.length == 2
 
 
+def test_downloadqueue_remove_by_episode_id():
+    mydownloadqueue = DownloadQueue()
+    queued_episode = Episode(feed=feed, ep_id=1, title="queued episode")
+    matching_episode = Episode(feed=feed, ep_id=1, title="matching episode")
+    mydownloadqueue.add(queued_episode)
+
+    mydownloadqueue.remove(matching_episode)
+
+    assert mydownloadqueue.length == 0
+
+
+def test_downloadqueue_remove_current_does_not_skip_next():
+    mydownloadqueue = DownloadQueue()
+    first = Episode(feed=feed, ep_id=1, title="first episode")
+    second = Episode(feed=feed, ep_id=2, title="second episode")
+    first.download = mock.MagicMock()
+    second.download = mock.MagicMock()
+    mydownloadqueue.add(first)
+    mydownloadqueue.add(second)
+    mydownloadqueue.start()
+
+    mydownloadqueue.remove(first)
+    assert mydownloadqueue.cancelled
+    mydownloadqueue.next()
+
+    assert mydownloadqueue.length == 1
+    second.download.assert_called_once_with(mydownloadqueue, None)
+
+
+def test_downloadqueue_advances_past_episode_without_enclosure():
+    mydownloadqueue = DownloadQueue()
+    missing_enclosure = Episode(feed=feed, ep_id=1, title="missing enclosure")
+    next_episode = Episode(feed=feed, ep_id=2, title="next episode")
+    next_episode.download = mock.MagicMock()
+    mydownloadqueue.add(missing_enclosure)
+    mydownloadqueue.add(next_episode)
+
+    mydownloadqueue.start()
+
+    assert mydownloadqueue.length == 1
+    next_episode.download.assert_called_once_with(mydownloadqueue, None)
+
+
 def test_downloadqueue_start():
     mydownloadqueue = DownloadQueue()
     mydownloadqueue._display = mock.MagicMock()
