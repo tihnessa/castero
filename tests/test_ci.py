@@ -27,7 +27,9 @@ def test_ci_exports_nonstandard_mpv_library_locations():
     assert 'DYLD_LIBRARY_PATH=$(brew --prefix mpv)/lib' in workflow
     assert "mpv-dev-x86_64-20260607-git-71ebd08.7z" in workflow
     assert "faa0be46643cd889a1d816696f60b9962d7bb70e9d9d6e619da368d0b22211d6" in workflow
+    assert "curl.exe --fail --location --retry 3" in workflow
     assert "Get-FileHash -Algorithm SHA256" in workflow
+    assert "Invoke-WebRequest -Uri" not in workflow
     assert "libmpv-2.dll" in workflow
     assert "$env:GITHUB_PATH" in workflow
 

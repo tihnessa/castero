@@ -68,9 +68,15 @@ jobs:
           $archive = Join-Path $env:RUNNER_TEMP "libmpv.7z"
           $destination = Join-Path $env:RUNNER_TEMP "libmpv"
 
-          Invoke-WebRequest -Uri $url -OutFile $archive
+          # SourceForge's mirror redirect can be saved as an HTML response by
+          # Invoke-WebRequest. Use curl's redirect and HTTP-error handling so
+          # the checksum is always applied to the archive itself.
+          curl.exe --fail --location --retry 3 --output $archive $url
+          if ($LASTEXITCODE -ne 0) { throw "Failed to download libmpv archive" }
           $actualHash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
-          if ($actualHash -ne $expectedHash) { throw "libmpv archive checksum mismatch" }
+          if ($actualHash -ne $expectedHash) {
+            throw "libmpv archive checksum mismatch: expected $expectedHash, got $actualHash"
+          }
 
           New-Item -ItemType Directory -Path $destination -Force | Out-Null
           7z x $archive "-o$destination" -y
