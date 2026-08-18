@@ -229,7 +229,6 @@ def test_display_delete_feed_cancels_active_download(display):
 
 
 def test_display_execute_command(display):
-    fname = "test_display_execute_command_output.mp3"
     myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")
     myepisode = Episode(
         myfeed,
@@ -238,22 +237,14 @@ def test_display_execute_command(display):
         link="episode link",
         pubdate="episode pubdate",
         copyright="episode copyright",
-        enclosure=fname,
+        enclosure="episode file",
     )
-    castero.config.Config.data = {"execute_command": "touch {file}"}
-    if os.path.exists(fname):
-        os.remove(fname)
-    display.execute_command(myepisode)
+    castero.config.Config.data = {"execute_command": "player {file}"}
 
-    successful = False
-    for i in range(10000):
-        if os.path.exists(fname):
-            successful = True
-            break
+    with mock.patch("castero.display.subprocess.Popen") as popen:
+        display.execute_command(myepisode)
 
-    if successful:
-        os.remove(fname)
-    assert successful
+    popen.assert_called_once_with("player episode file", shell=True)
 
 
 def test_display_color_numbers(display):

@@ -37,7 +37,7 @@ players. Installing both allows the `player` setting to select either backend.
 | --- | --- |
 | Ubuntu/Debian | `sudo apt install vlc mpv libmpv2` |
 | macOS with Homebrew | `brew install --cask vlc && brew install mpv` |
-| Windows with Chocolatey | `choco install vlc mpvio` |
+| Windows | `choco install vlc`; download the matching-architecture `mpv-dev` archive from the [official Windows builds](https://sourceforge.net/projects/mpv-player-windows/files/libmpv/) and add its extracted directory to `PATH` |
 
 The native player and Python must use the same architecture. On Windows,
 `libvlc.dll` or `mpv-2.dll`/`libmpv-2.dll` must be discoverable through the

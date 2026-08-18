@@ -25,5 +25,15 @@ def test_ci_exports_nonstandard_mpv_library_locations():
     workflow = WORKFLOW.read_text()
 
     assert 'DYLD_LIBRARY_PATH=$(brew --prefix mpv)/lib' in workflow
-    assert 'lib\\mpvio.install\\tools' in workflow
+    assert "mpv-dev-x86_64-20260809-git-dd5d17d328.7z" in workflow
+    assert "c6aebf40bb722efe79090bfeb61e68625f0837770347e5a8b610aef78900cf12" in workflow
+    assert "Get-FileHash -Algorithm SHA256" in workflow
+    assert "libmpv-2.dll" in workflow
     assert "$env:GITHUB_PATH" in workflow
+
+
+def test_ci_does_not_use_retired_code_climate_reporter():
+    workflow = WORKFLOW.read_text()
+
+    assert "codeclimate.com/downloads/test-reporter" not in workflow
+    assert "cc-test-reporter" not in workflow
