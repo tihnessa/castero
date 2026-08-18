@@ -86,3 +86,34 @@ def test_menu_episode_invert():
     mymenu.invert()
     assert mymenu._inverted
     mymenu.update_items(feed)
+
+
+def test_menu_episode_sorts_mixed_pubdates():
+    unknown = mock.MagicMock(spec=Episode, pubdate=None)
+    offset = mock.MagicMock(spec=Episode, pubdate="Tue, 18 Aug 2026 10:00:00 +1000")
+    utc = mock.MagicMock(spec=Episode, pubdate="Tue, 18 Aug 2026 01:00:00 +0000")
+    local_source = mock.MagicMock()
+    local_source.episodes.return_value = [unknown, offset, utc]
+    mymenu = EpisodeMenu(window, local_source)
+    mymenu._feed = feed
+    mymenu.display = mock.MagicMock()
+
+    mymenu._request_source_episodes(feed)
+
+    assert mymenu._episodes == [utc, offset, unknown]
+
+
+def test_menu_episode_inverts_mixed_pubdate_order():
+    unknown = mock.MagicMock(spec=Episode, pubdate="not a date")
+    offset = mock.MagicMock(spec=Episode, pubdate="Tue, 18 Aug 2026 10:00:00 +1000")
+    utc = mock.MagicMock(spec=Episode, pubdate="Tue, 18 Aug 2026 01:00:00 +0000")
+    local_source = mock.MagicMock()
+    local_source.episodes.return_value = [unknown, offset, utc]
+    mymenu = EpisodeMenu(window, local_source)
+    mymenu._feed = feed
+    mymenu._inverted = True
+    mymenu.display = mock.MagicMock()
+
+    mymenu._request_source_episodes(feed)
+
+    assert mymenu._episodes == [unknown, offset, utc]

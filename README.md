@@ -76,6 +76,10 @@ Commands
     1-5         - change between client layouts
 ```
 
+Episode menus sort publication dates by their normalized UTC time. Episodes
+with missing or malformed publication dates appear last in the default
+newest-first order and first when the menu order is inverted.
+
 ### Importing/exporting feeds from another client
 
 castero supports importing and exporting an [OPML file](https://en.wikipedia.org/wiki/OPML)
