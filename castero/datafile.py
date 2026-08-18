@@ -80,33 +80,45 @@ class DataFile:
         :param display (optional) the display to write status updates to
         """
         chunk_size = 1024
-        chuck_size_label = "KB"
+        chunk_size_label = "KB"
+        download_started = False
+        download_completed = False
 
         try:
             response = Net.Get(url, stream=True)
-        except requests.exceptions.RequestException as e:
-            if display is not None:
-                display.change_status("RequestException: %s" % str(e))
-            download_queue.next()
-            return
-        else:
-            handle = open(file, "wb")
-            downloaded = 0
-            for chunk in response.iter_content(chunk_size=chunk_size):
-                if display is not None:
-                    status_str = 'Downloading "%s": %d%s' % (name, downloaded / chunk_size, chuck_size_label)
-                    if download_queue.length > 1:
-                        status_str += " (+%d downloads in queue)" % (download_queue.length - 1)
+            response.raise_for_status()
 
-                    display.change_status(status_str)
-                if chunk:
-                    handle.write(chunk)
-                downloaded += len(chunk)
+            with open(file, "wb") as handle:
+                download_started = True
+                downloaded = 0
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if display is not None:
+                        status_str = 'Downloading "%s": %d%s' % (
+                            name,
+                            downloaded / chunk_size,
+                            chunk_size_label,
+                        )
+                        if download_queue.length > 1:
+                            status_str += " (+%d downloads in queue)" % (download_queue.length - 1)
 
+                        display.change_status(status_str)
+                    if chunk:
+                        handle.write(chunk)
+                    downloaded += len(chunk)
+
+            download_completed = True
             if display is not None:
                 display.change_status("Episode successfully downloaded.")
                 display.menus_valid = False
-        download_queue.next()
+        except requests.exceptions.RequestException as e:
+            if display is not None:
+                display.change_status("RequestException: %s" % str(e))
+        finally:
+            try:
+                if download_started and not download_completed and os.path.exists(file):
+                    os.remove(file)
+            finally:
+                download_queue.next()
 
     def load(self) -> None:
         """Loads the data file."""
