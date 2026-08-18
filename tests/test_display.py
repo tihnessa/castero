@@ -154,6 +154,42 @@ def test_display_delete_feed(display):
     assert len(display.database.feeds()) == 0
 
 
+def test_display_delete_feed_deletes_downloaded_episodes(display, tmp_path):
+    feed = Feed(
+        url="feed url",
+        title="feed title",
+        description="feed description",
+        link="feed link",
+        last_build_date="feed last_build_date",
+        copyright="feed copyright",
+        episodes=[],
+    )
+    episodes = [
+        Episode(feed, title="episode one"),
+        Episode(feed, title="episode two"),
+    ]
+    display.database.replace_feed(feed)
+    for episode in episodes:
+        display.database.replace_episode(feed, episode)
+
+    castero.config.Config.data["custom_download_dir"] = str(tmp_path)
+    feed_directory = tmp_path / "feed_title"
+    feed_directory.mkdir()
+    episode_files = [
+        feed_directory / ("%s-episode.mp3" % episode.ep_id)
+        for episode in episodes
+    ]
+    for episode_file in episode_files:
+        episode_file.write_text("downloaded episode")
+
+    display.delete_feed(feed)
+
+    assert all(not episode_file.exists() for episode_file in episode_files)
+    assert not feed_directory.exists()
+    assert display.database.episodes(feed) == []
+    assert display.database.feeds() == []
+
+
 def test_display_execute_command(display):
     fname = "test_display_execute_command_output.mp3"
     myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")

@@ -102,9 +102,10 @@ for a list of available settings.
 User data, including downloaded episodes and a database with your feed
 information and saved playback queue, is located at
 `{HOME}/.local/share/castero/`. Refreshing feeds preserves queued episodes that
-remain in those feeds. These files are not intended to be manually modified.
-Removing the database will simply cause castero to replace it with an empty one
-the next time you run the client.
+remain in those feeds. Deleting a feed also deletes its downloaded episodes.
+These files are not intended to be manually modified. Removing the database
+will simply cause castero to replace it with an empty one the next time you run
+the client.
 
 ## Testing
 
