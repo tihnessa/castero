@@ -1,9 +1,13 @@
 import os
+import sys
 from unittest import mock
+
+import pytest
 
 from castero.episode import Episode
 from castero.feed import Feed
 from castero.players.vlcplayer import VLCPlayer
+from castero.player import PlayerDependencyError
 
 my_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -19,8 +23,32 @@ episode = Episode(
 )
 
 
+@pytest.fixture(autouse=True)
+def mock_vlc_binding(monkeypatch):
+    """Keep unit tests independent of the native libVLC installation."""
+    monkeypatch.setitem(sys.modules, "vlc", mock.MagicMock())
+
+
 def test_player_vlc_check_dependencies():
-    assert VLCPlayer.check_dependencies
+    vlc = mock.MagicMock()
+    with mock.patch.dict(sys.modules, {"vlc": vlc}):
+        VLCPlayer.check_dependencies()
+    vlc.libvlc_release.assert_called_once_with(vlc.Instance.return_value)
+
+
+def test_player_vlc_check_dependencies_reports_missing_binding():
+    with mock.patch.dict(sys.modules, {"vlc": None}):
+        with pytest.raises(PlayerDependencyError, match="python-vlc"):
+            VLCPlayer.check_dependencies()
+
+
+def test_player_vlc_check_dependencies_reports_native_library_error():
+    vlc = mock.MagicMock()
+    vlc.Instance.side_effect = OSError("libvlc could not be loaded")
+
+    with mock.patch.dict(sys.modules, {"vlc": vlc}):
+        with pytest.raises(PlayerDependencyError, match="libvlc could not be loaded"):
+            VLCPlayer.check_dependencies()
 
 
 def test_player_vlc_init():

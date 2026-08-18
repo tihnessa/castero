@@ -2,11 +2,15 @@ name: CI
 on: [push, pull_request]
 permissions:
   contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Unit (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v6
@@ -14,24 +18,71 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install pre dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install vlc mpv libmpv-dev
+          cache: pip
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[test]"
+          python -m pip install -e ".[test]"
       - name: Test
         run: |
-          coverage run -m pytest
+          coverage run -m pytest -m "not native_player"
           coverage xml
-      - name: Setup Code Climate test-reporter
+      - name: Setup Code Climate test reporter
+        if: runner.os == 'Linux' && matrix.python-version == '3.14'
         run: |
-          curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+          curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 -o ./cc-test-reporter
           chmod +x ./cc-test-reporter
       - name: Upload coverage report
+        if: runner.os == 'Linux' && matrix.python-version == '3.14'
         env:
           CC_TEST_REPORTER_ID: ${{ secrets.CC_TEST_REPORTER_ID }}
+        run: ./cc-test-reporter after-build -t coverage.py
+
+  native-player:
+    name: Native ${{ matrix.player }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        player: [vlc, mpv]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install VLC on Linux
+        if: runner.os == 'Linux' && matrix.player == 'vlc'
+        run: sudo apt-get update && sudo apt-get install --yes vlc
+      - name: Install mpv on Linux
+        if: runner.os == 'Linux' && matrix.player == 'mpv'
+        run: sudo apt-get update && sudo apt-get install --yes mpv libmpv2
+      - name: Install VLC on macOS
+        if: runner.os == 'macOS' && matrix.player == 'vlc'
+        run: brew install --cask vlc
+      - name: Install mpv on macOS
+        if: runner.os == 'macOS' && matrix.player == 'mpv'
+        run: brew install mpv
+      - name: Install VLC on Windows
+        if: runner.os == 'Windows' && matrix.player == 'vlc'
+        run: choco install vlc --yes --no-progress
+      - name: Install mpv/libmpv on Windows
+        if: runner.os == 'Windows' && matrix.player == 'mpv'
+        shell: pwsh
         run: |
-          ./cc-test-reporter after-build -t coverage.py
+          choco install mpvio --yes --no-progress
+          $dll = Get-ChildItem C:\ProgramData\chocolatey\lib\mpvio `
+            -Recurse -Include mpv-2.dll,libmpv-2.dll |
+            Select-Object -First 1
+          if ($null -eq $dll) { throw "mpvio did not provide a libmpv DLL" }
+          $dll.Directory.FullName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Install castero
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+      - name: Exercise selected native backend
+        env:
+          CASTERO_NATIVE_PLAYER: ${{ matrix.player }}
+          CASTERO_NATIVE_SMOKE: "1"
+        run: python -m pytest -q tests/test_native_players.py

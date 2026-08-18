@@ -5,6 +5,7 @@ from shutil import copyfile
 
 import castero
 from castero.net import Net
+from castero.paths import APP_PATHS
 
 
 class DataFile:
@@ -17,12 +18,9 @@ class DataFile:
     """
 
     PACKAGE = os.path.dirname(__file__)
-    HOME = os.path.expanduser("~")
-    XDG_CONFIG_HOME = os.getenv("XDG_CONFIG_HOME", os.path.join(HOME, ".config"))
-    XDG_DATA_HOME = os.getenv("XDG_DATA_HOME", os.path.join(HOME, ".local", "share"))
-    CONFIG_DIR = os.path.join(XDG_CONFIG_HOME, castero.__title__)
-    DATA_DIR = os.path.join(XDG_DATA_HOME, castero.__title__)
-    DEFAULT_DOWNLOADED_DIR = os.path.join(DATA_DIR, "downloaded")
+    CONFIG_DIR = str(APP_PATHS.config_dir)
+    DATA_DIR = str(APP_PATHS.data_dir)
+    DEFAULT_DOWNLOADED_DIR = str(APP_PATHS.download_dir)
 
     def __init__(self, path, default_path) -> None:
         """

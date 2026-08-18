@@ -4,6 +4,7 @@ import os
 
 from castero.config import Config
 from castero.datafile import DataFile
+from castero.paths import download_path
 from castero.episode import Episode
 from castero.menu import Menu
 
@@ -72,12 +73,8 @@ class DownloadedMenu(Menu):
         self._sanitize()
 
     def _find_downloaded_episodes(self):
-        if Config is None or Config["custom_download_dir"] == "":
-            path = DataFile.DEFAULT_DOWNLOADED_DIR
-        else:
-            path = os.path.expandvars(os.path.expanduser(Config["custom_download_dir"]))
-            if not path.startswith("/"):
-                path = "/%s" % path
+        configured_path = "" if Config is None else Config["custom_download_dir"]
+        path = download_path(configured_path, default=DataFile.DEFAULT_DOWNLOADED_DIR)
 
         self._episodes = []
         for (dirpath, dirnames, filenames) in os.walk(path):

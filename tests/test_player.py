@@ -7,6 +7,7 @@ from castero.config import Config
 from castero.episode import Episode
 from castero.feed import Feed
 from castero.player import Player, PlayerDependencyError
+from castero.player import dependency_install_hint
 
 my_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -22,6 +23,12 @@ episode = Episode(
 )
 SomePlayer = mock.MagicMock()
 available_players = {"someplayer": SomePlayer}
+
+
+def test_dependency_install_hint_is_platform_specific():
+    assert "Windows" in dependency_install_hint("vlc", platform_name="Windows")
+    assert "macOS" in dependency_install_hint("mpv", platform_name="Darwin")
+    assert "Linux" in dependency_install_hint("vlc", platform_name="Linux")
 
 
 def test_player_create_instance_success_direct():

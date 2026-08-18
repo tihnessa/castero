@@ -1,4 +1,5 @@
 from abc import abstractmethod
+import platform
 
 import castero
 from castero.config import Config
@@ -15,6 +16,22 @@ class PlayerDependencyError(PlayerError):
 
 class PlayerCreateError(PlayerError):
     """An error occurred while creating the player."""
+
+
+def dependency_install_hint(player_name, platform_name=None) -> str:
+    """Return concise native-library setup guidance for the current OS."""
+    platform_name = platform_name or platform.system()
+    if platform_name == "Windows":
+        dependency = "VLC with libvlc.dll" if player_name == "vlc" else "mpv with libmpv-2.dll"
+        return (
+            "On Windows, install %s with the same architecture as Python and make its "
+            "DLL directory discoverable through PATH." % dependency
+        )
+    if platform_name == "Darwin":
+        dependency = "VLC/libVLC" if player_name == "vlc" else "mpv/libmpv"
+        return "On macOS, install %s and ensure its libraries are visible to Python." % dependency
+    dependency = "VLC/libVLC" if player_name == "vlc" else "mpv/libmpv"
+    return "On Linux, install %s from your distribution's package manager." % dependency
 
 
 class Player:
