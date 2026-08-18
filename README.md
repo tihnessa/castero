@@ -32,7 +32,7 @@ $ sudo python setup.py install
 
 Running castero requires the following external dependencies:
 
-* Python >= 3.5 (check the output of ``python --version``)
+* Python >= 3.9 (check the output of ``python --version``)
 * sqlite3
 * At least one of the following media players:
   * vlc >= 2.2.3
