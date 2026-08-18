@@ -58,7 +58,7 @@ def test_display_get_input_str(display):
     assert display._footer_window.clear.call_count == 1
     assert display._footer_window.addstr.call_count == 2
     display._footer_window.addstr.assert_any_call(1, 0, "prompt")
-    assert display._footer_window.called_with(1, len("prompt"))
+    display._footer_window.getch.assert_has_calls([mock.call(), mock.call(), mock.call()])
 
 
 def test_display_get_y_n(display):
@@ -66,7 +66,7 @@ def test_display_get_y_n(display):
     assert display._footer_window.clear.call_count == 1
     assert display._footer_window.addstr.call_count == 2
     display._footer_window.addstr.assert_any_call(1, 0, "prompt")
-    assert display._footer_window.called_with(1, len("prompt"))
+    display._footer_window.getch.assert_called_once_with()
 
 
 def test_display_input_keys(display):
