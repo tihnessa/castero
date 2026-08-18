@@ -72,7 +72,9 @@ class MPVPlayer(Player):
     def stop(self) -> None:
         """Stops the media."""
         if self._player is not None:
-            self._player.terminate()
+            player = self._player
+            self._player = None
+            player.terminate()
             self._state = 0
 
     def pause(self) -> None:

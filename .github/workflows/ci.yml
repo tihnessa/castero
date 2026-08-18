@@ -63,8 +63,8 @@ jobs:
         if: runner.os == 'Windows' && matrix.player == 'mpv'
         shell: pwsh
         run: |
-          $url = "https://sourceforge.net/projects/mpv-player-windows/files/libmpv/mpv-dev-x86_64-20260809-git-dd5d17d328.7z/download"
-          $expectedHash = "c6aebf40bb722efe79090bfeb61e68625f0837770347e5a8b610aef78900cf12"
+          $url = "https://downloads.sourceforge.net/project/mpv-player-windows/libmpv/mpv-dev-x86_64-20260607-git-71ebd08.7z"
+          $expectedHash = "faa0be46643cd889a1d816696f60b9962d7bb70e9d9d6e619da368d0b22211d6"
           $archive = Join-Path $env:RUNNER_TEMP "libmpv.7z"
           $destination = Join-Path $env:RUNNER_TEMP "libmpv"
 

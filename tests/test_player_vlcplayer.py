@@ -76,10 +76,13 @@ def test_player_vlc_pause():
 
 def test_player_vlc_stop():
     myplayer = VLCPlayer("player1 title", "player1 path", episode)
-    myplayer._player = mock.MagicMock()
+    native_player = mock.MagicMock()
+    myplayer._player = native_player
 
     myplayer.stop()
-    assert myplayer._player.stop.call_count == 1
+    myplayer.stop()
+    native_player.stop.assert_called_once_with()
+    assert myplayer._player is None
     assert myplayer.state == 0
 
 

@@ -68,11 +68,13 @@ class VLCPlayer(Player):
     def stop(self) -> None:
         """Stops the media."""
         if self._player is not None:
-            if self._player.get_state() == self.vlc.State.Opening:
-                self._player.release()
+            player = self._player
+            self._player = None
+            if player.get_state() == self.vlc.State.Opening:
+                player.release()
             else:
-                self._player.stop()
-                self._state = 0
+                player.stop()
+            self._state = 0
 
     def pause(self) -> None:
         """Pauses the media."""

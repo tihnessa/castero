@@ -74,9 +74,13 @@ def test_player_mpv_pause():
 
 def test_player_mpv_stop():
     myplayer = MPVPlayer("player1 title", "player1 path", episode)
-    myplayer._player = mock.MagicMock()
+    native_player = mock.MagicMock()
+    myplayer._player = native_player
 
     myplayer.stop()
+    myplayer.stop()
+    native_player.terminate.assert_called_once_with()
+    assert myplayer._player is None
     assert myplayer.state == 0
 
 
