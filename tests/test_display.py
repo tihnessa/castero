@@ -154,6 +154,80 @@ def test_display_delete_feed(display):
     assert len(display.database.feeds()) == 0
 
 
+def test_display_delete_feed_deletes_downloaded_episodes(display, tmp_path):
+    feed = Feed(
+        url="feed url",
+        title="feed title",
+        description="feed description",
+        link="feed link",
+        last_build_date="feed last_build_date",
+        copyright="feed copyright",
+        episodes=[],
+    )
+    episodes = [
+        Episode(feed, title="episode one"),
+        Episode(feed, title="episode two"),
+    ]
+    display.database.replace_feed(feed)
+    for episode in episodes:
+        display.database.replace_episode(feed, episode)
+
+    castero.config.Config.data["custom_download_dir"] = str(tmp_path)
+    feed_directory = tmp_path / "feed_title"
+    feed_directory.mkdir()
+    episode_files = [
+        feed_directory / ("%s-episode.mp3" % episode.ep_id)
+        for episode in episodes
+    ]
+    for episode_file in episode_files:
+        episode_file.write_text("downloaded episode")
+
+    display.delete_feed(feed)
+
+    assert all(not episode_file.exists() for episode_file in episode_files)
+    assert not feed_directory.exists()
+    assert display.database.episodes(feed) == []
+    assert display.database.feeds() == []
+
+
+def test_display_delete_feed_removes_pending_download(display):
+    feed = Feed(
+        url="feed url",
+        title="feed title",
+        description="feed description",
+        link="feed link",
+        last_build_date="feed last_build_date",
+        copyright="feed copyright",
+        episodes=[],
+    )
+    episode = Episode(feed, title="queued episode", enclosure="episode.mp3")
+    display.database.replace_feed(feed)
+    display.database.replace_episode(feed, episode)
+    episode.download = mock.MagicMock()
+    display._download_queue.add(episode)
+
+    display.delete_feed(feed)
+    display._download_queue.update()
+
+    assert display._download_queue.length == 0
+    episode.download.assert_not_called()
+
+
+def test_display_delete_feed_cancels_active_download(display):
+    feed = Feed(url="feed url", title="feed title")
+    episode = Episode(feed, title="active episode", enclosure="episode.mp3")
+    display.database.replace_feed(feed)
+    display.database.replace_episode(feed, episode)
+    episode.download = mock.MagicMock()
+    display._download_queue.add(episode)
+    display._download_queue.start()
+
+    display.delete_feed(feed)
+
+    assert display._download_queue.length == 0
+    assert display._download_queue.cancelled
+
+
 def test_display_execute_command(display):
     fname = "test_display_execute_command_output.mp3"
     myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")

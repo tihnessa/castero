@@ -9,44 +9,90 @@ class DownloadQueue:
     def __init__(self, display=None) -> None:
         self._episodes = []
         self._display = display
+        self._current = None
+        self._current_cancelled = False
+        self._lock = threading.RLock()
+
+    @staticmethod
+    def _matches(first, second) -> bool:
+        """Return whether two objects represent the same episode."""
+        return first is second or (
+            first.ep_id is not None
+            and second.ep_id is not None
+            and first.ep_id == second.ep_id
+        )
 
     def next(self) -> None:
         """Proceed to the next episode in the queue."""
-        if len(self._episodes) > 0:
-            self._episodes.pop(0)
-            self.start()
+        with self._lock:
+            if self._current is None:
+                if len(self._episodes) > 0:
+                    self._episodes.pop(0)
+            else:
+                self._episodes = [
+                    episode
+                    for episode in self._episodes
+                    if not self._matches(episode, self._current)
+                ]
+            self._current = None
+            self._current_cancelled = False
+
+        self.start()
 
     def add(self, episode) -> None:
         """Adds an episode to the end of the queue."""
         assert isinstance(episode, Episode)
 
-        if episode not in self._episodes:
-            self._episodes.append(episode)
+        with self._lock:
+            if episode not in self._episodes:
+                self._episodes.append(episode)
+
+    def remove(self, episode) -> None:
+        """Removes an episode from the queue."""
+        assert isinstance(episode, Episode)
+
+        with self._lock:
+            if self._current is not None and self._matches(self._current, episode):
+                self._current_cancelled = True
+            self._episodes = [
+                queued_episode
+                for queued_episode in self._episodes
+                if not self._matches(queued_episode, episode)
+            ]
 
     def start(self) -> None:
         """Start downloading the first episode in the queue."""
-        if self.first is not None:
-            self.first.download(self, self._display)
+        with self._lock:
+            if self._current is not None or len(self._episodes) == 0:
+                return
+            self._current = self._episodes[0]
+            episode = self._current
+
+        episode.download(self, self._display)
 
     def update(self) -> None:
         """Checks the status of the current download."""
-        # if nothing is downloading, start downloading the first episode
-        found_downloading = False
-        for thread in threading.enumerate():
-            if thread.getName().startswith("download"):
-                found_downloading = True
-        if not found_downloading and len(self._episodes) > 0:
+        with self._lock:
+            should_start = self._current is None and len(self._episodes) > 0
+        if should_start:
             self.start()
 
     @property
     def first(self) -> Episode:
         """Episode: the first episode in the queue"""
-        result = None
-        if len(self._episodes) > 0:
-            result = self._episodes[0]
-        return result
+        with self._lock:
+            if len(self._episodes) > 0:
+                return self._episodes[0]
+        return None
 
     @property
     def length(self) -> int:
         """int: the length of the queue"""
-        return len(self._episodes)
+        with self._lock:
+            return len(self._episodes)
+
+    @property
+    def cancelled(self) -> bool:
+        """bool: whether the current download has been cancelled"""
+        with self._lock:
+            return self._current_cancelled

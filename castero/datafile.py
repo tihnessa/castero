@@ -85,6 +85,9 @@ class DataFile:
         download_completed = False
 
         try:
+            if getattr(download_queue, "cancelled", False) is True:
+                return
+
             response = Net.Get(url, stream=True)
             response.raise_for_status()
 
@@ -92,6 +95,8 @@ class DataFile:
                 download_started = True
                 downloaded = 0
                 for chunk in response.iter_content(chunk_size=chunk_size):
+                    if getattr(download_queue, "cancelled", False) is True:
+                        break
                     if display is not None:
                         status_str = 'Downloading "%s": %d%s' % (
                             name,
@@ -106,8 +111,8 @@ class DataFile:
                         handle.write(chunk)
                     downloaded += len(chunk)
 
-            download_completed = True
-            if display is not None:
+            download_completed = getattr(download_queue, "cancelled", False) is not True
+            if download_completed and display is not None:
                 display.change_status("Episode successfully downloaded.")
                 display.menus_valid = False
         except requests.exceptions.RequestException as e:
@@ -115,8 +120,14 @@ class DataFile:
                 display.change_status("RequestException: %s" % str(e))
         finally:
             try:
-                if download_started and not download_completed and os.path.exists(file):
+                cancelled = getattr(download_queue, "cancelled", False) is True
+                should_remove = cancelled or (download_started and not download_completed)
+                if should_remove and os.path.exists(file):
                     os.remove(file)
+                if cancelled:
+                    directory = os.path.dirname(file)
+                    if os.path.isdir(directory) and len(os.listdir(directory)) == 0:
+                        os.rmdir(directory)
             finally:
                 download_queue.next()
 

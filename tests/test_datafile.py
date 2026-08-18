@@ -3,6 +3,9 @@ from unittest import mock
 import requests
 
 from castero.datafile import DataFile
+from castero.downloadqueue import DownloadQueue
+from castero.episode import Episode
+from castero.feed import Feed
 
 
 def response_with_chunks(*chunks):
@@ -123,3 +126,39 @@ def test_datafile_download_without_display(get, tmp_path):
 
     assert output_path.read_bytes() == b"audio"
     download_queue.next.assert_called_once_with()
+
+
+@mock.patch("castero.datafile.Net.Get")
+def test_datafile_cancelled_download_removes_partial_file(get, tmp_path):
+    feed = Feed(url="feed url", title="feed title")
+    episode = Episode(feed, ep_id=1, title="episode")
+    next_episode = Episode(feed, ep_id=2, title="next episode")
+    download_queue = DownloadQueue()
+    episode.download = mock.MagicMock()
+    next_episode.download = mock.MagicMock()
+    download_queue.add(episode)
+    download_queue.add(next_episode)
+    download_queue.start()
+
+    def cancelled_chunks():
+        yield b"partial audio"
+        download_queue.remove(episode)
+        yield b"cancelled audio"
+
+    response = response_with_chunks()
+    response.iter_content.return_value = cancelled_chunks()
+    get.return_value = response
+    output_path = tmp_path / "feed" / "episode.mp3"
+    DataFile.ensure_path(output_path)
+
+    DataFile.download_to_file(
+        "https://example.com/episode.mp3",
+        output_path,
+        "episode name",
+        download_queue,
+    )
+
+    assert not output_path.exists()
+    assert not output_path.parent.exists()
+    assert download_queue.length == 1
+    next_episode.download.assert_called_once_with(download_queue, None)
