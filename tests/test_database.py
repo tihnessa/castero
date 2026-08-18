@@ -227,6 +227,25 @@ def test_database_reload(prevent_modification, display):
     assert mydatabase.feeds()[0].title == real_title
 
 
+def test_database_reload_preserves_episode_progress(prevent_modification):
+    mydatabase = Database()
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, myfeed.parse_episodes())
+
+    episodes = mydatabase.episodes(myfeed)
+    mydatabase.replace_progress(episodes[0], 42000)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    reloaded_episodes = {episode.title: episode for episode in mydatabase.episodes(reloaded_feed)}
+    assert reloaded_episodes[episodes[0].title].progress == 42000
+    assert reloaded_episodes[episodes[1].title].progress == 0
+
+
 def test_database_replace_queue(display):
     copyfile(my_dir + "/datafiles/database_example1.db", Database.PATH)
     mydatabase = Database()
