@@ -12,6 +12,11 @@ Version listings include the following sections, if applicable:
 
 See also <https://github.com/xgi/castero/releases>.
 
+## Unreleased
+**Fixed**
+* OPML imports now discover feeds in every nested folder instead of only the
+first folder branch.
+
 ## 0.9.5 - 2021-04-02
 **Added**
 * Added the `default_layout` config setting.

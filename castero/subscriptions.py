@@ -110,35 +110,23 @@ class Subscriptions:
         if body is None:
             raise SubscriptionsStructureError(error_msg)
 
-        feeds_container = self._find_rss_container(body)
-        if feeds_container is not None:
-            self._feeds = []
-            for entry in feeds_container.findall("outline"):
-                try:
-                    feed = Feed(url=entry.attrib["xmlUrl"])
-                    self._feeds.append(feed)
-                    yield feed
-                except FeedDownloadError as e:
-                    yield (entry.attrib["xmlUrl"], e)
-                except FeedStructureError as e:
-                    yield (entry.attrib["xmlUrl"], e)
-                except FeedParseError as e:
-                    yield (entry.attrib["xmlUrl"], e)
+        self._feeds = []
+        for entry in body.iter("outline"):
+            if entry.attrib.get("type", "").lower() not in ["rss", "link"]:
+                continue
+            if "xmlUrl" not in entry.attrib:
+                continue
 
-    def _find_rss_container(self, container):
-        """Find potentially-nested container for RSS feeds.
-
-        :param container the Element to search
-        :returns Element: the first 'outline' Element containing an RSS feed
-        """
-        outline = container.find("outline")
-        if outline is None:
-            return None
-
-        if "type" in outline.attrib and outline.attrib["type"].lower() in ["rss", "link"]:
-            return container
-        else:
-            return self._find_rss_container(outline)
+            try:
+                feed = Feed(url=entry.attrib["xmlUrl"])
+                self._feeds.append(feed)
+                yield feed
+            except FeedDownloadError as e:
+                yield (entry.attrib["xmlUrl"], e)
+            except FeedStructureError as e:
+                yield (entry.attrib["xmlUrl"], e)
+            except FeedParseError as e:
+                yield (entry.attrib["xmlUrl"], e)
 
     @property
     def feeds(self) -> List[Feed]:
