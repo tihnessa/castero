@@ -80,8 +80,9 @@ Commands
 
 castero supports importing and exporting an [OPML file](https://en.wikipedia.org/wiki/OPML)
 of your subscriptions in order to easily transfer them between other podcast
-clients. Please refer to your other client's documentation for details on
-how/if it supports this format.
+clients. Imports discover feeds in nested folder or group outlines. Please refer
+to your other client's documentation for details on how/if it supports this
+format.
 
 Importing and exporting from castero are available with command line flags.
 Run `castero --help` for details.

@@ -55,6 +55,23 @@ def test_subscriptions_valid_no_head():
     assert len(mysubscriptions.feeds) == 2
 
 
+def test_subscriptions_valid_nested_siblings():
+    mysubscriptions = Subscriptions()
+    Feed.__init__ = mock.MagicMock(return_value=None)
+    mysubscriptions.load(my_dir + "/subscriptions/valid_nested_siblings.xml")
+
+    generated = list(mysubscriptions.parse())
+
+    assert Feed.__init__.call_args_list == [
+        mock.call(url="http://feed1"),
+        mock.call(url="http://feed2"),
+        mock.call(url="http://feed3"),
+        mock.call(url="http://feed4"),
+    ]
+    assert generated == mysubscriptions.feeds
+    assert len(mysubscriptions.feeds) == 4
+
+
 def test_subscriptions_valid_minimal():
     mysubscriptions = Subscriptions()
     Feed.__init__ = mock.MagicMock(return_value=None)
