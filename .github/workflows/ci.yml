@@ -63,7 +63,9 @@ jobs:
         run: brew install --cask vlc
       - name: Install mpv on macOS
         if: runner.os == 'macOS' && matrix.player == 'mpv'
-        run: brew install mpv
+        run: |
+          brew install mpv
+          echo "DYLD_LIBRARY_PATH=$(brew --prefix mpv)/lib" >> "$GITHUB_ENV"
       - name: Install VLC on Windows
         if: runner.os == 'Windows' && matrix.player == 'vlc'
         run: choco install vlc --yes --no-progress
@@ -72,7 +74,8 @@ jobs:
         shell: pwsh
         run: |
           choco install mpvio --yes --no-progress
-          $dll = Get-ChildItem C:\ProgramData\chocolatey\lib\mpvio `
+          $package = Join-Path $env:ChocolateyInstall "lib\mpvio.install\tools"
+          $dll = Get-ChildItem $package `
             -Recurse -Include mpv-2.dll,libmpv-2.dll |
             Select-Object -First 1
           if ($null -eq $dll) { throw "mpvio did not provide a libmpv DLL" }

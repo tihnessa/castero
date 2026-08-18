@@ -87,29 +87,40 @@ class Player:
         :raises PlayerDependencyError: at least one dependency per player for all
           players was not met
         """
-        if Config["player"] in available_players:
+        dependency_errors = {}
+        configured_player = Config["player"]
+        if configured_player in available_players:
             try:
-                available_players[Config["player"]].check_dependencies()
-                inst = available_players[Config["player"]](title, path, episode)
+                available_players[configured_player].check_dependencies()
+                inst = available_players[configured_player](title, path, episode)
                 return inst
-            except PlayerDependencyError:
-                pass
+            except PlayerDependencyError as error:
+                dependency_errors[configured_player] = str(error)
 
         # Config had a bad/unsupported value; we'll instead try all implemented
         # options in order
         for av_player in sorted(available_players):
+            if av_player in dependency_errors:
+                continue
             try:
                 available_players[av_player].check_dependencies()
                 inst = available_players[av_player](title, path, episode)
                 return inst
-            except PlayerDependencyError:
-                pass
+            except PlayerDependencyError as error:
+                dependency_errors[av_player] = str(error)
 
-        raise PlayerDependencyError(
-            "Sufficient dependencies were not met for"
-            " any players. If you recently downloaded"
-            " a player, you may need to reinstall %s" % castero.__title__
+        details = "; ".join(
+            "%s: %s" % (player, error or "dependency check failed")
+            for player, error in dependency_errors.items()
         )
+        message = "Sufficient dependencies were not met for any players."
+        if details:
+            message += " " + details
+        else:
+            message += " If you recently installed a player, you may need to reinstall %s." % (
+                castero.__title__
+            )
+        raise PlayerDependencyError(message)
 
     @staticmethod
     @abstractmethod
