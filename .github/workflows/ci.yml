@@ -1,25 +1,33 @@
 name: CI
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.7", "3.8", "3.9", "3.10"]
+        python-version: ["3.7", "3.8", "3.9", "3.10", "3.14"]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install pre dependencies
         run: |
           sudo apt-get update
           sudo apt-get install vlc mpv libmpv-dev
-      - name: Install dependencies
+      - name: Install pinned dependencies
+        if: matrix.python-version != '3.14'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+      - name: Install current dependencies
+        if: matrix.python-version == '3.14'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
       - name: Test
         run: |
           coverage run -m pytest
