@@ -1,3 +1,8 @@
+from datetime import datetime
+
+import pytest
+import pytz
+
 from castero import helpers
 
 
@@ -91,3 +96,38 @@ def test_is_true_no():
     assert not helpers.is_true("False")
     assert not helpers.is_true("")
     assert not helpers.is_true("hi")
+
+
+def test_datetime_from_rfc822_utc():
+    result = helpers.datetime_from_rfc822("Tue, 18 Aug 2026 02:00:00 +0000")
+
+    assert result == datetime(2026, 8, 18, 2, tzinfo=pytz.UTC)
+
+
+def test_datetime_from_rfc822_converts_offset_to_utc():
+    result = helpers.datetime_from_rfc822("Tue, 18 Aug 2026 10:00:00 +1000")
+
+    assert result == datetime(2026, 8, 18, 0, tzinfo=pytz.UTC)
+    assert result.tzinfo is pytz.UTC
+
+
+def test_datetime_from_rfc822_assumes_naive_date_is_utc():
+    result = helpers.datetime_from_rfc822("Tue, 18 Aug 2026 02:00:00")
+
+    assert result == datetime(2026, 8, 18, 2, tzinfo=pytz.UTC)
+
+
+@pytest.mark.parametrize("date", [None, "not a date"])
+def test_datetime_from_rfc822_unknown_date_is_aware_minimum(date):
+    result = helpers.datetime_from_rfc822(date)
+
+    assert result == datetime.min.replace(tzinfo=pytz.UTC)
+
+
+def test_datetime_from_rfc822_keys_with_unknown_dates_are_sortable():
+    keys = [
+        helpers.datetime_from_rfc822("Tue, 18 Aug 2026 02:00:00 +0000"),
+        helpers.datetime_from_rfc822(None),
+    ]
+
+    assert sorted(keys) == [datetime.min.replace(tzinfo=pytz.UTC), keys[0]]

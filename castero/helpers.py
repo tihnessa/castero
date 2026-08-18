@@ -73,18 +73,24 @@ def html_to_plain(html) -> str:
 
 
 def datetime_from_rfc822(date) -> datetime:
-    """Convert a date string in RFC822 format into a datetime.
+    """Convert an RFC822 date string into a UTC-aware datetime.
 
     https://www.w3.org/Protocols/rfc822/
     https://validator.w3.org/feed/docs/error/InvalidRFC2822Date.html
 
     :param date string for the date/time in RFC822 format
-    :returns datetime: a matching datetime object, or -1
+    :returns datetime: the matching UTC datetime, or an aware datetime.min
+      when the date is missing or invalid
     """
     try:
-        return parsedate_to_datetime(date).replace(tzinfo=pytz.UTC)
+        result = parsedate_to_datetime(date)
     except (TypeError, ValueError):
-        return -1
+        return datetime.min.replace(tzinfo=pytz.UTC)
+
+    if result.tzinfo is None:
+        return result.replace(tzinfo=pytz.UTC)
+
+    return result.astimezone(pytz.UTC)
 
 
 def seconds_to_time(seconds: int) -> str:
