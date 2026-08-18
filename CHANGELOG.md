@@ -18,6 +18,8 @@ See also <https://github.com/xgi/castero/releases>.
 first folder branch.
 * Refreshing a feed no longer removes its retained episodes from the saved
 playback queue.
+* Episode downloads now reject HTTP error responses and remove incomplete
+downloads after network failures.
 
 ## 0.9.5 - 2021-04-02
 **Added**
