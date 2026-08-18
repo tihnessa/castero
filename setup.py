@@ -9,8 +9,10 @@ install_requires = [
     'pytz',
     'beautifulsoup4',
     'lxml',
+    'platformdirs~=4.4.0',
     'python-vlc',
-    'python-mpv'
+    'python-mpv',
+    'windows-curses; platform_system == "Windows"'
 ]
 
 tests_require = [
@@ -53,6 +55,9 @@ setuptools.setup(
     classifiers=[
         'Intended Audience :: End Users/Desktop',
         'Environment :: Console :: Curses',
+        'Operating System :: MacOS',
+        'Operating System :: Microsoft :: Windows',
+        'Operating System :: POSIX :: Linux',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',

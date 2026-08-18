@@ -1,4 +1,6 @@
-from castero.player import Player, PlayerDependencyError
+import os
+
+from castero.player import Player, PlayerDependencyError, dependency_install_hint
 from castero import helpers, constants
 
 
@@ -19,16 +21,29 @@ class MPVPlayer(Player):
         """Checks whether dependencies are met for playing a player."""
         try:
             import mpv
-
-            mpv.MPV()
-        except (ImportError, NameError, OSError, AttributeError):
+        except ImportError as error:
             raise PlayerDependencyError(
-                "Dependency mpv not found, which is required for playing" " media files"
-            )
+                "The python-mpv package is not installed. %s" % dependency_install_hint("mpv")
+            ) from error
+        except (NameError, OSError, AttributeError) as error:
+            raise PlayerDependencyError(
+                "The mpv Python binding was found, but libmpv could not be loaded: %s. %s"
+                % (error, dependency_install_hint("mpv"))
+            ) from error
+
+        try:
+            instance = mpv.MPV()
+            instance.terminate()
+        except (NameError, OSError, AttributeError) as error:
+            raise PlayerDependencyError(
+                "The mpv Python binding was found, but libmpv could not be loaded: %s. %s"
+                % (error, dependency_install_hint("mpv"))
+            ) from error
 
     def _create_player(self) -> None:
         """Creates the player object while making sure it is a valid file."""
-        self._player = self.mpv.MPV()
+        options = {"ao": "null"} if os.getenv("CASTERO_NATIVE_SMOKE") else {}
+        self._player = self.mpv.MPV(**options)
         self._player.vid = False
         self._player.pause = False
 
@@ -57,7 +72,9 @@ class MPVPlayer(Player):
     def stop(self) -> None:
         """Stops the media."""
         if self._player is not None:
-            self._player.terminate()
+            player = self._player
+            self._player = None
+            player.terminate()
             self._state = 0
 
     def pause(self) -> None:

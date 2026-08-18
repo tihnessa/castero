@@ -1,5 +1,6 @@
 import curses
 import os
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -9,9 +10,11 @@ from gevent import monkey
 monkey.patch_all(thread=False, select=False)
 
 import castero.config
+import castero.menus.episodemenu
 from castero.datafile import DataFile
 from castero.display import Display
 from castero.database import Database
+from castero.player import Player
 
 
 class Helpers:
@@ -55,6 +58,23 @@ class MockStdscr(mock.MagicMock):
 
     def set_test_input(self, str):
         self.test_input = str
+
+
+class SynchronousThread:
+    """Run an EpisodeMenu worker immediately to keep UI tests deterministic."""
+
+    def __init__(self, target, args=(), **_kwargs):
+        self._target = target
+        self._args = args
+
+    def start(self):
+        self._target(*self._args)
+
+
+@pytest.fixture(autouse=True)
+def synchronous_episode_menu_threads(monkeypatch):
+    threading = SimpleNamespace(Thread=SynchronousThread)
+    monkeypatch.setattr(castero.menus.episodemenu, "threading", threading)
 
 
 @pytest.yield_fixture()
@@ -101,8 +121,15 @@ def prevent_modification():
 
 @pytest.yield_fixture()
 def display(prevent_modification, stdscr):
-    database = Database()
-    yield Display(stdscr, database)
+    def create_player(_available_players, _title, _path, episode):
+        player = mock.MagicMock(spec=Player)
+        player.episode = episode
+        player.state = 0
+        return player
+
+    with mock.patch("castero.player.Player.create_instance", side_effect=create_player):
+        database = Database()
+        yield Display(stdscr, database)
 
 
 @pytest.fixture(autouse=True)

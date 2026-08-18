@@ -1,7 +1,8 @@
+import os
 import time
 
 from castero import constants
-from castero.player import Player, PlayerDependencyError
+from castero.player import Player, PlayerDependencyError, dependency_install_hint
 
 
 class VLCPlayer(Player):
@@ -21,17 +22,33 @@ class VLCPlayer(Player):
         """Checks whether dependencies are met for playing a player."""
         try:
             import vlc
-
-            i = vlc.Instance()
-            vlc.libvlc_release(i)
-        except (ImportError, NameError, OSError, AttributeError):
+        except ImportError as error:
             raise PlayerDependencyError(
-                "Dependency VLC not found, which is required for playing" " media files"
-            )
+                "The python-vlc package is not installed. %s" % dependency_install_hint("vlc")
+            ) from error
+        except (NameError, OSError, AttributeError) as error:
+            raise PlayerDependencyError(
+                "The VLC Python binding was found, but libVLC could not be loaded: %s. %s"
+                % (error, dependency_install_hint("vlc"))
+            ) from error
+
+        try:
+            instance = vlc.Instance()
+            if instance is None:
+                raise OSError("libVLC returned no instance")
+            vlc.libvlc_release(instance)
+        except (NameError, OSError, AttributeError) as error:
+            raise PlayerDependencyError(
+                "The VLC Python binding was found, but libVLC could not be loaded: %s. %s"
+                % (error, dependency_install_hint("vlc"))
+            ) from error
 
     def _create_player(self) -> None:
         """Creates the player object while making sure it is a valid file."""
-        vlc_instance = self.vlc.Instance("--no-video --quiet")
+        options = "--no-video --quiet"
+        if os.getenv("CASTERO_NATIVE_SMOKE"):
+            options += " --aout=dummy"
+        vlc_instance = self.vlc.Instance(options)
 
         self._player = vlc_instance.media_player_new()
         self._media = vlc_instance.media_new(self._path)
@@ -51,11 +68,13 @@ class VLCPlayer(Player):
     def stop(self) -> None:
         """Stops the media."""
         if self._player is not None:
-            if self._player.get_state() == self.vlc.State.Opening:
-                self._player.release()
+            player = self._player
+            self._player = None
+            if player.get_state() == self.vlc.State.Opening:
+                player.release()
             else:
-                self._player.stop()
-                self._state = 0
+                player.stop()
+            self._state = 0
 
     def pause(self) -> None:
         """Pauses the media."""

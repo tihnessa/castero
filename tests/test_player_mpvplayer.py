@@ -1,9 +1,13 @@
 import os
+import sys
 from unittest import mock
+
+import pytest
 
 from castero.episode import Episode
 from castero.feed import Feed
 from castero.players.mpvplayer import MPVPlayer
+from castero.player import PlayerDependencyError
 
 my_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -19,8 +23,32 @@ episode = Episode(
 )
 
 
+@pytest.fixture(autouse=True)
+def mock_mpv_binding(monkeypatch):
+    """Keep unit tests independent of the native libmpv installation."""
+    monkeypatch.setitem(sys.modules, "mpv", mock.MagicMock())
+
+
 def test_player_mpv_check_dependencies():
-    assert MPVPlayer.check_dependencies
+    mpv = mock.MagicMock()
+    with mock.patch.dict(sys.modules, {"mpv": mpv}):
+        MPVPlayer.check_dependencies()
+    mpv.MPV.return_value.terminate.assert_called_once_with()
+
+
+def test_player_mpv_check_dependencies_reports_missing_binding():
+    with mock.patch.dict(sys.modules, {"mpv": None}):
+        with pytest.raises(PlayerDependencyError, match="python-mpv"):
+            MPVPlayer.check_dependencies()
+
+
+def test_player_mpv_check_dependencies_reports_native_library_error():
+    mpv = mock.MagicMock()
+    mpv.MPV.side_effect = OSError("libmpv could not be loaded")
+
+    with mock.patch.dict(sys.modules, {"mpv": mpv}):
+        with pytest.raises(PlayerDependencyError, match="libmpv could not be loaded"):
+            MPVPlayer.check_dependencies()
 
 
 def test_player_mpv_init():
@@ -46,9 +74,13 @@ def test_player_mpv_pause():
 
 def test_player_mpv_stop():
     myplayer = MPVPlayer("player1 title", "player1 path", episode)
-    myplayer._player = mock.MagicMock()
+    native_player = mock.MagicMock()
+    myplayer._player = native_player
 
     myplayer.stop()
+    myplayer.stop()
+    native_player.terminate.assert_called_once_with()
+    assert myplayer._player is None
     assert myplayer.state == 0
 
 

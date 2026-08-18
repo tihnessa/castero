@@ -1,4 +1,5 @@
 from abc import abstractmethod
+import platform
 
 import castero
 from castero.config import Config
@@ -15,6 +16,22 @@ class PlayerDependencyError(PlayerError):
 
 class PlayerCreateError(PlayerError):
     """An error occurred while creating the player."""
+
+
+def dependency_install_hint(player_name, platform_name=None) -> str:
+    """Return concise native-library setup guidance for the current OS."""
+    platform_name = platform_name or platform.system()
+    if platform_name == "Windows":
+        dependency = "VLC with libvlc.dll" if player_name == "vlc" else "mpv with libmpv-2.dll"
+        return (
+            "On Windows, install %s with the same architecture as Python and make its "
+            "DLL directory discoverable through PATH." % dependency
+        )
+    if platform_name == "Darwin":
+        dependency = "VLC/libVLC" if player_name == "vlc" else "mpv/libmpv"
+        return "On macOS, install %s and ensure its libraries are visible to Python." % dependency
+    dependency = "VLC/libVLC" if player_name == "vlc" else "mpv/libmpv"
+    return "On Linux, install %s from your distribution's package manager." % dependency
 
 
 class Player:
@@ -70,29 +87,40 @@ class Player:
         :raises PlayerDependencyError: at least one dependency per player for all
           players was not met
         """
-        if Config["player"] in available_players:
+        dependency_errors = {}
+        configured_player = Config["player"]
+        if configured_player in available_players:
             try:
-                available_players[Config["player"]].check_dependencies()
-                inst = available_players[Config["player"]](title, path, episode)
+                available_players[configured_player].check_dependencies()
+                inst = available_players[configured_player](title, path, episode)
                 return inst
-            except PlayerDependencyError:
-                pass
+            except PlayerDependencyError as error:
+                dependency_errors[configured_player] = str(error)
 
         # Config had a bad/unsupported value; we'll instead try all implemented
         # options in order
         for av_player in sorted(available_players):
+            if av_player in dependency_errors:
+                continue
             try:
                 available_players[av_player].check_dependencies()
                 inst = available_players[av_player](title, path, episode)
                 return inst
-            except PlayerDependencyError:
-                pass
+            except PlayerDependencyError as error:
+                dependency_errors[av_player] = str(error)
 
-        raise PlayerDependencyError(
-            "Sufficient dependencies were not met for"
-            " any players. If you recently downloaded"
-            " a player, you may need to reinstall %s" % castero.__title__
+        details = "; ".join(
+            "%s: %s" % (player, error or "dependency check failed")
+            for player, error in dependency_errors.items()
         )
+        message = "Sufficient dependencies were not met for any players."
+        if details:
+            message += " " + details
+        else:
+            message += " If you recently installed a player, you may need to reinstall %s." % (
+                castero.__title__
+            )
+        raise PlayerDependencyError(message)
 
     @staticmethod
     @abstractmethod

@@ -1,5 +1,4 @@
 from unittest import mock
-import time
 
 from castero.episode import Episode
 from castero.feed import Feed
@@ -31,7 +30,6 @@ def test_menu_episode_update_items(mock_color_pair, mock_A_NORMAL):
     mymenu = EpisodeMenu(window, source)
     mymenu.update_items(feed)
     source.episodes.assert_called_with(feed)
-    time.sleep(1)  # hack to wait for thread
     assert len(mymenu._items) == 2
     assert len(mymenu) == 2
 
@@ -50,7 +48,8 @@ def test_menu_episode_item_none():
     assert mymenu.item is None
 
 
-def test_menu_episode_item():
+@mock.patch("curses.color_pair")
+def test_menu_episode_item(_color_pair):
     mymenu = EpisodeMenu(window, source)
     mymenu.update_items(feed)
     assert mymenu.item == episode1
@@ -65,7 +64,8 @@ def test_menu_episode_metadata_none():
     assert mymenu.metadata == ""
 
 
-def test_menu_episode_metadata():
+@mock.patch("curses.color_pair")
+def test_menu_episode_metadata(_color_pair):
     mymenu = EpisodeMenu(window, source)
     mymenu.update_items(feed)
     assert mymenu.metadata == episode1.metadata
@@ -81,7 +81,8 @@ def test_menu_episode_update_child(mock_A_NORMAL, mock_color_pair):
     assert mymenu._items == items
 
 
-def test_menu_episode_invert():
+@mock.patch("curses.color_pair")
+def test_menu_episode_invert(_color_pair):
     mymenu = EpisodeMenu(window, source)
     mymenu.invert()
     assert mymenu._inverted

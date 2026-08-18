@@ -128,6 +128,7 @@ def test_perspective_simple_create_player(display):
     display.database.replace_episodes(feed, [episode1, episode2])
     perspective._feed_menu.update_items(None)
     perspective._episode_menu.update_items(feed)
+    perspective._episode_menu._request_source_episodes(feed)
     perspective._active_window = 0
     perspective._create_player_from_selected()
     assert display.queue.length == 2
@@ -174,6 +175,7 @@ def test_perspective_simple_queue_unplayed(display):
     display.database.replace_episodes(feed, [episode1, episode2])
     perspective._feed_menu.update_items(None)
     perspective._episode_menu.update_items(feed)
+    perspective._episode_menu._request_source_episodes(feed)
     perspective._active_window = 0
     perspective._queue_unplayed_feed_episodes = False
     perspective._create_player_from_selected()

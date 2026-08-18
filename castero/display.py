@@ -657,10 +657,6 @@ class Display:
         self.database.replace_queue(self._queue)
         self.database.close()
 
-        curses.nocbreak()
-        self._stdscr.keypad(False)
-        curses.echo()
-        curses.endwin()
 
     def update_parent_dimensions(self) -> None:
         """Update _parent_x and _parent_y to the size of the console."""

@@ -5,6 +5,7 @@ from castero import constants
 from castero import helpers
 from castero.config import Config
 from castero.datafile import DataFile
+from castero.paths import download_path
 
 
 class Episode:
@@ -74,12 +75,8 @@ class Episode:
         :returns str: a path to the feed directory
         """
         feed_dirname = helpers.sanitize_path(str(self._feed))
-        if Config is None or Config["custom_download_dir"] == "":
-            path = DataFile.DEFAULT_DOWNLOADED_DIR
-        else:
-            path = os.path.expandvars(os.path.expanduser(Config["custom_download_dir"]))
-            if not path.startswith("/"):
-                path = "/%s" % path
+        configured_path = "" if Config is None else Config["custom_download_dir"]
+        path = download_path(configured_path, default=DataFile.DEFAULT_DOWNLOADED_DIR)
         return os.path.join(path, feed_dirname)
 
     def get_playable(self) -> str:

@@ -30,14 +30,24 @@ $ sudo python setup.py install
 
 ## Dependencies
 
-Running castero requires the following external dependencies:
+Running castero requires Python 3.9 or newer and one or both native media
+players. Installing both allows the `player` setting to select either backend.
 
-* Python >= 3.9 (check the output of ``python --version``)
-* sqlite3
-* At least one of the following media players:
-  * vlc >= 2.2.3
-  * (mpv and libmpv) >= 0.14.0
-  
+| Platform | Native dependencies |
+| --- | --- |
+| Ubuntu/Debian | `sudo apt install vlc mpv libmpv2` |
+| macOS with Homebrew | `brew install --cask vlc && brew install mpv` |
+| Windows | `choco install vlc`; download the matching-architecture `mpv-dev` archive from the [official Windows builds](https://sourceforge.net/projects/mpv-player-windows/files/libmpv/) and add its extracted directory to `PATH` |
+
+The native player and Python must use the same architecture. On Windows,
+`libvlc.dll` or `mpv-2.dll`/`libmpv-2.dll` must be discoverable through the
+normal installation location or `PATH`. castero reports backend-specific setup
+guidance when a Python binding is installed but its native library cannot be
+loaded.
+
+The Windows installation automatically includes `windows-curses`. Use a modern
+interactive console such as Windows Terminal, PowerShell, or Command Prompt.
+Linux and macOS require a terminal with curses and color support.
 ## Usage
 
 After installing castero, it can be run with simply:
@@ -93,19 +103,42 @@ Run `castero --help` for details.
 
 ## Configuration
 
-The configuration file is located at `{HOME}/.config/castero/castero.conf`
-after the client has been run at least once.
+Configuration and user data follow each operating system's native conventions:
+
+| Platform | Configuration | User data and downloads |
+| --- | --- | --- |
+| Linux | `$XDG_CONFIG_HOME/castero/castero.conf` or `~/.config/castero/castero.conf` | `$XDG_DATA_HOME/castero` or `~/.local/share/castero` |
+| macOS | `~/Library/Application Support/castero/castero.conf` | `~/Library/Application Support/castero` |
+| Windows | `%LOCALAPPDATA%\\castero\\castero.conf` | `%LOCALAPPDATA%\\castero` |
+
+Linux locations remain compatible with previous castero releases. On macOS,
+existing legacy `~/.config/castero` and `~/.local/share/castero` directories
+continue to be used until they are moved to the native location. The files are
+created after the client is run for the first time.
 
 Please see the [default castero.conf](https://github.com/xgi/castero/blob/master/castero/templates/castero.conf)
 for a list of available settings.
 
-User data, including downloaded episodes and a database with your feed
-information and saved playback queue, is located at
-`{HOME}/.local/share/castero/`. Refreshing feeds preserves queued episodes that
-remain in those feeds. Deleting a feed also deletes its downloaded episodes.
-These files are not intended to be manually modified. Removing the database
-will simply cause castero to replace it with an empty one the next time you run
-the client.
+User data includes downloaded episodes and a database containing feed
+information and the saved playback queue. The `custom_download_dir` setting
+accepts POSIX paths, Windows drive-letter paths such as `D:\\Podcasts`, UNC
+paths such as `\\\\server\\share\\Podcasts`, environment variables, and `~`.
+Refreshing feeds preserves queued episodes that remain in those feeds. Deleting
+a feed also deletes its downloaded episodes. These files are not intended to be
+manually modified.
+
+### Platform troubleshooting
+
+- If startup says curses is unavailable on Windows, reinstall castero so its
+  conditional `windows-curses` dependency is installed, then use an interactive
+  Windows console rather than an IDE output pane.
+- If a backend cannot load, confirm the native player and Python have matching
+  32/64-bit or ARM architectures and restart the terminal after changing
+  `PATH`.
+- VLC's Python binding also honors `PYTHON_VLC_LIB_PATH` and
+  `PYTHON_VLC_MODULE_PATH` for non-standard installations.
+- mpv on Windows requires a build that includes the libmpv DLL; an `mpv.exe`
+  by itself is insufficient.
 
 ## Testing
 

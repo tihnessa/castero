@@ -13,7 +13,18 @@ Version listings include the following sections, if applicable:
 See also <https://github.com/xgi/castero/releases>.
 
 ## Unreleased
+**Added**
+* Added native Linux, macOS, and Windows application directories, terminal
+startup support, player dependency diagnostics, and CI coverage.
+* Added Windows drive-letter and UNC download path support.
+
+**Changed**
+* Configuration and data paths now follow platform conventions through
+`platformdirs`; Linux continues to honor the XDG base-directory variables.
+
 **Fixed**
+* Terminal cleanup and stderr suppression no longer depend on Unix C-runtime
+symbols and now restore state after errors.
 * OPML imports now discover feeds in every nested folder instead of only the
 first folder branch.
 * Refreshing a feed no longer removes its retained episodes from the saved
