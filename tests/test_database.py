@@ -518,6 +518,72 @@ def test_database_reload_matches_duplicate_titles_by_enclosure(display):
     ]
 
 
+def test_database_reload_disambiguates_duplicate_enclosures_by_title(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    shared_enclosure = "https://example.com/shared.mp3"
+    original_episodes = [
+        Episode(
+            myfeed,
+            title="Episode A",
+            description="Episode A description",
+            enclosure=shared_enclosure,
+        ),
+        Episode(
+            myfeed,
+            title="Episode B",
+            description="Original Episode B description",
+            enclosure=shared_enclosure,
+        ),
+    ]
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, original_episodes)
+
+    stored_episodes = mydatabase.episodes(myfeed)
+    original_episode_ids = {
+        episode.title: episode.ep_id for episode in stored_episodes
+    }
+    mydatabase.replace_progress(stored_episodes[0], 111)
+    mydatabase.replace_progress(stored_episodes[1], 222)
+
+    myqueue = Queue(display)
+    player = mock.MagicMock(spec=Player)
+    player.episode = stored_episodes[1]
+    myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    reloaded_feed.parse_episodes = mock.MagicMock(
+        return_value=[
+            Episode(
+                reloaded_feed,
+                title="Episode B",
+                description="Updated Episode B description",
+                enclosure=shared_enclosure,
+            )
+        ]
+    )
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "-1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    retained_episodes = {
+        episode.title: episode for episode in mydatabase.episodes(reloaded_feed)
+    }
+    assert set(retained_episodes) == {"Episode A", "Episode B"}
+    assert retained_episodes["Episode A"].ep_id == original_episode_ids["Episode A"]
+    assert retained_episodes["Episode A"].progress == 111
+    assert retained_episodes["Episode B"].ep_id == original_episode_ids["Episode B"]
+    assert retained_episodes["Episode B"].progress == 222
+    assert retained_episodes["Episode B"].description == "Updated Episode B description"
+    assert [episode.ep_id for episode in mydatabase.queue()] == [
+        original_episode_ids["Episode B"]
+    ]
+
+
 def test_database_replace_queue(display):
     copyfile(my_dir + "/datafiles/database_example1.db", Database.PATH)
     mydatabase = Database()

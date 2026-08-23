@@ -723,12 +723,7 @@ class Database:
         new_episodes = new_feed.parse_episodes()
         old_episodes = self.episodes(new_feed)
         episode_progresses = {}
-        current_enclosures = {episode.enclosure for episode in new_episodes}
-        present_episode_ids = {
-            episode.ep_id
-            for episode in old_episodes
-            if episode.enclosure in current_enclosures
-        }
+        present_episode_ids = set()
         unmatched_old_episodes = list(old_episodes)
         unmatched_new_episodes = []
 
@@ -739,21 +734,35 @@ class Database:
             if old_episode.progress != 0:
                 episode_progresses[new_episode.ep_id] = new_episode.progress
 
-        # Enclosures are required for parsed episodes and distinguish episodes
-        # even when a feed reuses the same title for multiple items.
+        # Enclosures are required for parsed episodes and usually distinguish
+        # episodes even when a feed reuses the same title. Some feeds also
+        # reuse enclosure URLs, so narrow those matches with other identifying
+        # metadata before carrying user data to a refreshed episode.
         for new_ep in new_episodes:
-            matching_old = next(
-                (
+            matching_olds = [
+                old_ep
+                for old_ep in unmatched_old_episodes
+                if old_ep.enclosure == new_ep.enclosure
+            ]
+            for identity in (
+                lambda episode: str(episode),
+                lambda episode: episode.link,
+                lambda episode: episode.pubdate,
+            ):
+                if len(matching_olds) <= 1:
+                    break
+                narrower_matches = [
                     old_ep
-                    for old_ep in unmatched_old_episodes
-                    if old_ep.enclosure == new_ep.enclosure
-                ),
-                None,
-            )
-            if matching_old is None:
-                unmatched_new_episodes.append(new_ep)
+                    for old_ep in matching_olds
+                    if identity(old_ep) == identity(new_ep)
+                ]
+                if narrower_matches:
+                    matching_olds = narrower_matches
+
+            if len(matching_olds) == 1:
+                copy_user_metadata(new_ep, matching_olds[0])
             else:
-                copy_user_metadata(new_ep, matching_old)
+                unmatched_new_episodes.append(new_ep)
 
         # Retain the existing title-based behavior only when it is unambiguous.
         for new_ep in unmatched_new_episodes:
