@@ -86,6 +86,8 @@ Commands
     1-5         - change between client layouts
 ```
 
+Feed-menu filters match podcast titles case-insensitively.
+
 Episode menus sort publication dates by their normalized UTC time. Episodes
 with missing or malformed publication dates appear last in the default
 newest-first order and first when the menu order is inverted.
