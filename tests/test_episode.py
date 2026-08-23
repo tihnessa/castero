@@ -152,6 +152,27 @@ def test_episode_playable_uses_recorded_download_path(tmp_path):
     DataFile.DEFAULT_DOWNLOADED_DIR = os.path.join(DataFile.DATA_DIR, "downloaded")
 
 
+def test_episode_does_not_play_partial_download(tmp_path):
+    DataFile.DEFAULT_DOWNLOADED_DIR = str(tmp_path)
+    partial = tmp_path / "Feed" / "1-Episode.mp3.part"
+    partial.parent.mkdir()
+    partial.write_bytes(b"partial audio")
+    feed = Feed(url="https://example.com/feed.xml", title="Feed")
+    episode = Episode(
+        feed,
+        ep_id=1,
+        title="Episode",
+        enclosure="https://example.com/episode.mp3",
+        download_path="Feed/1-Episode.mp3.part",
+        download_checksum="a" * 64,
+    )
+
+    assert episode.get_playable() == "https://example.com/episode.mp3"
+    assert not episode.downloaded
+
+    DataFile.DEFAULT_DOWNLOADED_DIR = os.path.join(DataFile.DATA_DIR, "downloaded")
+
+
 def test_episode_rejects_recorded_path_outside_download_root(tmp_path):
     DataFile.DEFAULT_DOWNLOADED_DIR = str(tmp_path / "downloaded")
     outside = tmp_path / "outside.mp3"

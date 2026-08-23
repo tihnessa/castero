@@ -115,11 +115,20 @@ class DataFile:
                         digest.update(chunk)
                     downloaded += len(chunk)
 
-            download_completed = getattr(download_queue, "cancelled", False) is not True
-            if download_completed:
+            def complete_download():
                 os.replace(temporary_file, file)
                 if on_complete is not None:
                     on_complete(file, digest.hexdigest())
+
+            finalize = getattr(type(download_queue), "finalize", None)
+            if finalize is None:
+                download_completed = getattr(download_queue, "cancelled", False) is not True
+                if download_completed:
+                    complete_download()
+            else:
+                download_completed = finalize(download_queue, complete_download)
+
+            if download_completed:
                 if display is not None:
                     display.change_status("Episode successfully downloaded.")
                     display.menus_valid = False

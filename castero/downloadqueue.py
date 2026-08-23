@@ -11,6 +11,8 @@ class DownloadQueue:
         self._display = display
         self._current = None
         self._current_cancelled = False
+        self._worker = None
+        self._stopping = False
         self._lock = threading.RLock()
 
     @staticmethod
@@ -36,6 +38,7 @@ class DownloadQueue:
                 ]
             self._current = None
             self._current_cancelled = False
+            self._worker = None
 
         self.start()
 
@@ -63,12 +66,38 @@ class DownloadQueue:
     def start(self) -> None:
         """Start downloading the first episode in the queue."""
         with self._lock:
-            if self._current is not None or len(self._episodes) == 0:
+            if self._stopping or self._current is not None or len(self._episodes) == 0:
                 return
             self._current = self._episodes[0]
             episode = self._current
+            worker = episode.download(self, self._display)
+            if self._current is episode:
+                self._worker = worker
 
-        episode.download(self, self._display)
+    def finalize(self, callback) -> bool:
+        """Run a download's final promotion while cancellation is excluded."""
+        with self._lock:
+            if self._stopping or self._current_cancelled:
+                return False
+            callback()
+            return True
+
+    def stop(self) -> None:
+        """Cancel queued work and wait for the active download worker to exit."""
+        with self._lock:
+            self._stopping = True
+            self._episodes = []
+            if self._current is not None:
+                self._current_cancelled = True
+            worker = self._worker
+
+        if worker is not None and worker is not threading.current_thread():
+            worker.join()
+
+        with self._lock:
+            if self._worker is worker:
+                self._worker = None
+            self._current = None
 
     def update(self) -> None:
         """Checks the status of the current download."""

@@ -1,4 +1,5 @@
 import os
+import threading
 from unittest import mock
 
 from castero.downloadqueue import DownloadQueue
@@ -105,3 +106,33 @@ def test_downloadqueue_update():
     mydownloadqueue.start = mock.MagicMock(name="start")
     mydownloadqueue.update()
     assert mydownloadqueue.start.call_count == 1
+
+
+def test_downloadqueue_stop_cancels_and_joins_active_worker():
+    download_queue = DownloadQueue()
+    episode = Episode(feed=feed, ep_id=1, title="active episode")
+    started = threading.Event()
+    finished = threading.Event()
+
+    def download(queue, _display):
+        def work():
+            started.set()
+            while not queue.cancelled:
+                finished.wait(0.001)
+            finished.set()
+            queue.next()
+
+        worker = threading.Thread(target=work)
+        worker.start()
+        return worker
+
+    episode.download = download
+    download_queue.add(episode)
+    download_queue.start()
+    assert started.wait(1)
+
+    download_queue.stop()
+
+    assert finished.is_set()
+    assert download_queue.length == 0
+    assert download_queue._worker is None

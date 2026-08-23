@@ -96,7 +96,12 @@ class Episode:
         if not isinstance(self._download_path, str) or "\\" in self._download_path:
             return None
         relative = PurePosixPath(self._download_path)
-        if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        if (
+            relative.is_absolute()
+            or not relative.parts
+            or ".." in relative.parts
+            or relative.name.endswith(".part")
+        ):
             return None
         root = self._download_root().resolve()
         candidate = root.joinpath(*relative.parts)
@@ -105,6 +110,18 @@ class Episode:
         except ValueError:
             return None
         return candidate
+
+    def _legacy_download_files(self, feed_directory):
+        """Yield completed files matching the legacy episode naming scheme."""
+        prefix = str(self.ep_id) + "-"
+        for filename in os.listdir(feed_directory):
+            path = os.path.join(feed_directory, filename)
+            if (
+                filename.startswith(prefix)
+                and not filename.endswith(".part")
+                and os.path.isfile(path)
+            ):
+                yield path
 
     def get_playable(self) -> str:
         """Gets a playable path for this episode.
@@ -123,9 +140,8 @@ class Episode:
 
         feed_directory = self._feed_directory()
         if self._download_path is None and os.path.exists(feed_directory):
-            for File in os.listdir(feed_directory):
-                if File.startswith(str(self.ep_id) + "-"):
-                    playable = os.path.join(feed_directory, File)
+            for path in self._legacy_download_files(feed_directory):
+                playable = path
 
         return playable
 
@@ -173,6 +189,7 @@ class Episode:
             name="download_%s" % str(self),
         )
         t.start()
+        return t
 
     def delete(self, display=None):
         """Deletes the episode file from the file system.
@@ -190,12 +207,11 @@ class Episode:
                     directory.rmdir()
                 self._downloaded = False
             elif os.path.exists(feed_directory):
-                for File in os.listdir(feed_directory):
-                    if File.startswith(str(self.ep_id) + "-"):
-                        os.remove(os.path.join(feed_directory, File))
-                        self._downloaded = False
-                        if display is not None:
-                            display.change_status("Successfully deleted the downloaded episode")
+                for path in self._legacy_download_files(feed_directory):
+                    os.remove(path)
+                    self._downloaded = False
+                    if display is not None:
+                        display.change_status("Successfully deleted the downloaded episode")
 
                 # if there are no more files in the feed directory, delete it
                 if len(os.listdir(feed_directory)) == 0:
@@ -222,9 +238,7 @@ class Episode:
 
         feed_directory = self._feed_directory()
         if os.path.exists(feed_directory):
-            for File in os.listdir(feed_directory):
-                if File.startswith(str(self.ep_id) + "-"):
-                    self._downloaded = True
+            self._downloaded = next(self._legacy_download_files(feed_directory), None) is not None
         return self._downloaded
 
     def replace_from(self, episode) -> None:

@@ -77,6 +77,37 @@ def test_verifier_does_not_migrate_database_during_scan(tmp_path):
     connection.close()
 
 
+def test_verifier_rejects_tables_without_required_constraints(tmp_path):
+    database_path = tmp_path / "castero.db"
+    connection = sqlite3.connect(str(database_path))
+    connection.executescript(
+        """
+        pragma user_version=5;
+        create table feed (
+            key text, title text, description text, link text,
+            last_build_date text, copyright text
+        );
+        create table episode (
+            id integer, feed_key text, title text, description text, link text,
+            pubdate text, copyright text, enclosure text, played bit
+        );
+        create table queue (id integer, ep_id integer);
+        create table progress (ep_id integer, time integer);
+        create table download (ep_id integer, path text, sha256 text);
+        """
+    )
+    connection.close()
+
+    findings = Verifier(database_path, tmp_path / "downloaded").scan()
+
+    assert finding_codes(findings) == ["schema_invalid"]
+    message = findings[0].message
+    assert "primary-key" in message
+    assert "nullability" in message
+    assert "unique constraint" in message
+    assert "foreign key" in message
+
+
 def test_interactive_schema_migration_creates_backup(tmp_path):
     database_path = tmp_path / "castero.db"
     create_database(database_path, version=4)
@@ -181,6 +212,47 @@ def test_verifier_reports_duplicate_download(tmp_path):
     findings = Verifier(database_path, download_dir).scan()
 
     assert sorted(finding_codes(findings)) == ["download_duplicate", "download_legacy"]
+
+
+def test_verifier_reports_partial_download_without_baseline_action(tmp_path):
+    database_path = tmp_path / "castero.db"
+    download_dir = tmp_path / "downloaded"
+    partial_path = download_dir / "Feed_title" / "1-Episode_title.mp3.part"
+    partial_path.parent.mkdir(parents=True)
+    partial_path.write_bytes(b"partial audio")
+    create_database(database_path)
+
+    findings = Verifier(database_path, download_dir).scan()
+
+    assert finding_codes(findings) == ["download_partial"]
+    assert findings[0].actions == ("redownload", "remove_file")
+    assert "baseline" not in findings[0].actions
+
+
+def test_verifier_rejects_tracked_partial_download(tmp_path):
+    database_path = tmp_path / "castero.db"
+    download_dir = tmp_path / "downloaded"
+    partial_path = download_dir / "Feed_title" / "1-Episode_title.mp3.part"
+    partial_path.parent.mkdir(parents=True)
+    content = b"partial audio"
+    partial_path.write_bytes(content)
+    create_database(database_path)
+    connection = sqlite3.connect(str(database_path))
+    connection.execute(
+        "insert into download (ep_id, path, sha256) values (?, ?, ?)",
+        (
+            1,
+            "Feed_title/1-Episode_title.mp3.part",
+            hashlib.sha256(content).hexdigest(),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    findings = Verifier(database_path, download_dir).scan()
+
+    assert finding_codes(findings) == ["download_metadata_invalid", "download_partial"]
+    assert "baseline" not in findings[1].actions
 
 
 def test_verifier_rejects_unsafe_download_metadata(tmp_path):

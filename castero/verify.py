@@ -58,6 +58,47 @@ class Verifier:
         "progress": {"ep_id", "time"},
         "download": {"ep_id", "path", "sha256"},
     }
+    COLUMN_DEFINITIONS = {
+        "feed": {
+            "key": ("TEXT", False, 1, None),
+            "title": ("TEXT", False, 0, None),
+            "description": ("TEXT", False, 0, None),
+            "link": ("TEXT", False, 0, None),
+            "last_build_date": ("TEXT", False, 0, None),
+            "copyright": ("TEXT", False, 0, None),
+        },
+        "episode": {
+            "id": ("INTEGER", False, 1, None),
+            "feed_key": ("TEXT", False, 0, None),
+            "title": ("TEXT", False, 0, None),
+            "description": ("TEXT", False, 0, None),
+            "link": ("TEXT", False, 0, None),
+            "pubdate": ("TEXT", False, 0, None),
+            "copyright": ("TEXT", False, 0, None),
+            "enclosure": ("TEXT", False, 0, None),
+            "played": ("BIT", True, 0, "0"),
+        },
+        "queue": {
+            "id": ("INTEGER", False, 1, None),
+            "ep_id": ("INTEGER", False, 0, None),
+        },
+        "progress": {
+            "ep_id": ("INTEGER", False, 1, None),
+            "time": ("INTEGER", False, 0, None),
+        },
+        "download": {
+            "ep_id": ("INTEGER", False, 1, None),
+            "path": ("TEXT", True, 0, None),
+            "sha256": ("TEXT", True, 0, None),
+        },
+    }
+    REQUIRED_UNIQUE_COLUMNS = {"download": {("path",)}}
+    REQUIRED_FOREIGN_KEYS = {
+        "episode": {("feed_key", "feed", "key", "NO ACTION", "CASCADE")},
+        "queue": {("ep_id", "episode", "id", "NO ACTION", "CASCADE")},
+        "progress": {("ep_id", "episode", "id", "NO ACTION", "CASCADE")},
+        "download": {("ep_id", "episode", "id", "NO ACTION", "CASCADE")},
+    }
     ACTION_LABELS = {
         "migrate": "migrate the database schema",
         "delete_row": "remove the invalid database record",
@@ -202,17 +243,69 @@ class Verifier:
                 invalid.append("missing table %s" % table)
                 continue
             columns = {
-                row[1]
+                row[1]: row
                 for row in connection.execute("PRAGMA table_info(%s)" % table).fetchall()
             }
             required_columns = set(self.REQUIRED_COLUMNS[table])
             if table == "episode" and version < 2:
                 required_columns.discard("played")
-            missing = required_columns - columns
+            missing = required_columns - set(columns)
             if missing:
                 invalid.append(
                     "%s missing columns %s" % (table, ", ".join(sorted(missing)))
                 )
+            for column in sorted(required_columns - missing):
+                row = columns[column]
+                expected_type, expected_not_null, expected_pk, expected_default = (
+                    self.COLUMN_DEFINITIONS[table][column]
+                )
+                if str(row[2]).upper() != expected_type:
+                    invalid.append("%s.%s has the wrong declared type" % (table, column))
+                if bool(row[3]) != expected_not_null:
+                    invalid.append("%s.%s has the wrong nullability" % (table, column))
+                if row[5] != expected_pk:
+                    invalid.append("%s.%s has the wrong primary-key definition" % (table, column))
+                if row[4] != expected_default:
+                    invalid.append("%s.%s has the wrong default value" % (table, column))
+
+            required_unique = self.REQUIRED_UNIQUE_COLUMNS.get(table, set())
+            if required_unique:
+                unique_columns = set()
+                for index in connection.execute(
+                    "PRAGMA index_list(%s)" % table
+                ).fetchall():
+                    if not index[2] or index[4]:
+                        continue
+                    index_columns = tuple(
+                        row[2]
+                        for row in connection.execute(
+                            'PRAGMA index_info("%s")' % index[1].replace('"', '""')
+                        ).fetchall()
+                    )
+                    unique_columns.add(index_columns)
+                for column_names in sorted(required_unique - unique_columns):
+                    invalid.append(
+                        "%s.%s is missing its unique constraint"
+                        % (table, ",".join(column_names))
+                    )
+
+            required_foreign_keys = self.REQUIRED_FOREIGN_KEYS.get(table, set())
+            if required_foreign_keys:
+                foreign_key_rows = {}
+                for row in connection.execute(
+                    "PRAGMA foreign_key_list(%s)" % table
+                ).fetchall():
+                    foreign_key_rows.setdefault(row[0], []).append(row)
+                foreign_keys = {
+                    (rows[0][3], rows[0][2], rows[0][4], rows[0][5], rows[0][6])
+                    for rows in foreign_key_rows.values()
+                    if len(rows) == 1
+                }
+                for foreign_key in sorted(required_foreign_keys - foreign_keys):
+                    invalid.append(
+                        "%s.%s is missing its foreign key to %s.%s"
+                        % (table, foreign_key[0], foreign_key[1], foreign_key[2])
+                    )
         if invalid:
             for finding in findings:
                 if finding.code == "schema_outdated":
@@ -337,7 +430,12 @@ class Verifier:
         if not isinstance(relative_path, str) or "\\" in relative_path:
             return None
         pure_path = PurePosixPath(relative_path)
-        if pure_path.is_absolute() or not pure_path.parts or ".." in pure_path.parts:
+        if (
+            pure_path.is_absolute()
+            or not pure_path.parts
+            or ".." in pure_path.parts
+            or pure_path.name.endswith(".part")
+        ):
             return None
         candidate = self.download_dir.joinpath(*pure_path.parts)
         try:
@@ -468,6 +566,23 @@ class Verifier:
                 )
                 continue
             if normalized in tracked:
+                continue
+            if normalized.endswith(".part"):
+                completed_path = normalized[: -len(".part")]
+                episode = episodes.get(self._legacy_key(PurePosixPath(completed_path)))
+                data = {"absolute_path": absolute_path, "path": completed_path}
+                actions = ("remove_file",)
+                if episode is not None:
+                    data.update(episode)
+                    actions = ("redownload", "remove_file")
+                findings.append(
+                    self._finding(
+                        "download_partial",
+                        "Incomplete download artifact found: %s" % normalized,
+                        actions=actions,
+                        data=data,
+                    )
+                )
                 continue
             legacy_key = self._legacy_key(relative_path)
             episode = episodes.get(legacy_key)
@@ -613,6 +728,10 @@ class Verifier:
             return
 
         if action == "redownload":
+            if finding.code == "download_partial":
+                partial_path = Path(data["absolute_path"])
+                if partial_path.exists():
+                    partial_path.unlink()
             self._redownload(data)
             return
 
@@ -725,9 +844,16 @@ def _choose_action(finding, input_func):
         "r": "redownload",
         "d": "remove",
         "f": "forget",
+        "x": "remove_file",
         "s": None,
     }
-    hotkeys = {"baseline": "b", "redownload": "r", "remove": "d", "forget": "f"}
+    hotkeys = {
+        "baseline": "b",
+        "redownload": "r",
+        "remove": "d",
+        "forget": "f",
+        "remove_file": "x",
+    }
     choices = ", ".join(
         "%s=%s" % (hotkeys[action], Verifier.ACTION_LABELS[action])
         for action in finding.actions
