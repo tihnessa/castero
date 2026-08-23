@@ -653,6 +653,94 @@ def test_database_reload_does_not_reuse_remaining_duplicate_enclosure(display):
     ]
 
 
+def test_database_reload_does_not_reuse_remaining_duplicate_title(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    original_episodes = [
+        Episode(
+            myfeed,
+            title="Repeated title",
+            enclosure="https://example.com/a.mp3",
+        ),
+        Episode(
+            myfeed,
+            title="Repeated title",
+            enclosure="https://example.com/b.mp3",
+        ),
+    ]
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, original_episodes)
+
+    stored_episodes = mydatabase.episodes(myfeed)
+    original_episode_ids = {
+        episode.enclosure: episode.ep_id for episode in stored_episodes
+    }
+    mydatabase.replace_progress(stored_episodes[1], 222)
+    mydatabase.replace_download(
+        stored_episodes[1], "example/b.mp3", "a" * 64
+    )
+
+    myqueue = Queue(display)
+    player = mock.MagicMock(spec=Player)
+    player.episode = stored_episodes[1]
+    myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    reloaded_feed.parse_episodes = mock.MagicMock(
+        return_value=[
+            Episode(
+                reloaded_feed,
+                title="Repeated title",
+                enclosure="https://example.com/a.mp3",
+            ),
+            Episode(
+                reloaded_feed,
+                title="Repeated title",
+                enclosure="https://example.com/c.mp3",
+            ),
+        ]
+    )
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "-1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    retained_episodes = {
+        episode.enclosure: episode
+        for episode in mydatabase.episodes(reloaded_feed)
+    }
+    assert set(retained_episodes) == {
+        "https://example.com/a.mp3",
+        "https://example.com/b.mp3",
+        "https://example.com/c.mp3",
+    }
+    assert (
+        retained_episodes["https://example.com/a.mp3"].ep_id
+        == original_episode_ids["https://example.com/a.mp3"]
+    )
+    assert (
+        retained_episodes["https://example.com/b.mp3"].ep_id
+        == original_episode_ids["https://example.com/b.mp3"]
+    )
+    assert retained_episodes["https://example.com/b.mp3"].progress == 222
+    assert (
+        retained_episodes["https://example.com/b.mp3"].download_path
+        == "example/b.mp3"
+    )
+    assert (
+        retained_episodes["https://example.com/c.mp3"].ep_id
+        not in original_episode_ids.values()
+    )
+    assert retained_episodes["https://example.com/c.mp3"].progress == 0
+    assert retained_episodes["https://example.com/c.mp3"].download_path is None
+    assert [episode.ep_id for episode in mydatabase.queue()] == [
+        original_episode_ids["https://example.com/b.mp3"]
+    ]
+
+
 def test_database_reload_preserves_exact_duplicates(display):
     mydatabase = display.database
 

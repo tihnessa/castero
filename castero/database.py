@@ -624,7 +624,7 @@ class Database:
         To determine which episodes are the same, we first compare enclosure
         URLs. As a compatibility fallback for feeds that change those URLs, we
         compare string representations (usually episode titles) when exactly
-        one unmatched stored episode has the same representation.
+        one stored and one refreshed episode have the same representation.
 
         This method adheres to the max_episodes config parameter to limit the
         number of episodes saved per feed. If retain_absent_episodes is enabled,
@@ -813,17 +813,11 @@ class Database:
             for old_episode, new_episode in zip(matching_olds, matching_news):
                 copy_user_metadata(new_episode, old_episode)
 
-        # Retain the existing title-based behavior only when it is unambiguous.
-        old_titles = {}
-        new_titles = {}
-        for episode in unmatched_old_episodes:
-            old_titles.setdefault(str(episode), []).append(episode)
-        for episode in unmatched_new_episodes:
-            new_titles.setdefault(str(episode), []).append(episode)
-        for title, matching_olds in old_titles.items():
-            matching_news = new_titles.get(title, [])
-            if len(matching_olds) == 1 and len(matching_news) == 1:
-                copy_user_metadata(matching_news[0], matching_olds[0])
+        # Retain the existing title-based behavior only when it is unambiguous
+        # across the complete feed on both sides. Checking only the remaining
+        # candidates could make a duplicated title appear unique after an
+        # enclosure match consumed one occurrence.
+        match_unique(lambda episode: str(episode))
 
         retained_absent_episodes = []
         if helpers.is_true(Config["retain_absent_episodes"]):
