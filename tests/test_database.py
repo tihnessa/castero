@@ -339,6 +339,453 @@ def test_database_reload_preserves_queued_retained_episode(display):
     assert len(mydatabase.episodes(reloaded_feed)) == 1
 
 
+def test_database_reload_retains_absent_episodes_and_metadata(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, myfeed.parse_episodes())
+
+    original_episodes = mydatabase.episodes(myfeed)
+    original_episode_ids = {
+        episode.title: episode.ep_id for episode in original_episodes
+    }
+    absent_episode = original_episodes[1]
+    mydatabase.replace_progress(absent_episode, 42000)
+
+    myqueue = Queue(display)
+    player = mock.MagicMock(spec=Player)
+    player.episode = absent_episode
+    myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    current_episode = reloaded_feed.parse_episodes()[0]
+    reloaded_feed.parse_episodes = mock.MagicMock(return_value=[current_episode])
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "-1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    retained_episodes = {
+        episode.title: episode for episode in mydatabase.episodes(reloaded_feed)
+    }
+    assert {
+        title: episode.ep_id for title, episode in retained_episodes.items()
+    } == original_episode_ids
+    assert retained_episodes[absent_episode.title].progress == 42000
+    assert [episode.ep_id for episode in mydatabase.queue()] == [
+        absent_episode.ep_id
+    ]
+
+
+def test_database_reload_removes_absent_episodes_when_retention_disabled(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, myfeed.parse_episodes())
+
+    original_episodes = mydatabase.episodes(myfeed)
+    absent_episode = original_episodes[1]
+    mydatabase.replace_progress(absent_episode, 42000)
+
+    myqueue = Queue(display)
+    player = mock.MagicMock(spec=Player)
+    player.episode = absent_episode
+    myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    current_episode = reloaded_feed.parse_episodes()[0]
+    reloaded_feed.parse_episodes = mock.MagicMock(return_value=[current_episode])
+    Config.data["retain_absent_episodes"] = "False"
+    Config.data["max_episodes"] = "-1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    reloaded_episodes = mydatabase.episodes(reloaded_feed)
+    assert [episode.title for episode in reloaded_episodes] == [
+        current_episode.title
+    ]
+    assert mydatabase.episode(absent_episode.ep_id) is None
+    assert mydatabase.queue() == []
+
+
+def test_database_reload_caps_retained_absent_episodes(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, myfeed.parse_episodes())
+
+    original_episodes = mydatabase.episodes(myfeed)
+    reloaded_feed = Feed(file=myfeed_path)
+    current_episode = reloaded_feed.parse_episodes()[0]
+    reloaded_feed.parse_episodes = mock.MagicMock(return_value=[current_episode])
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "2"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    retained_episodes = mydatabase.episodes(reloaded_feed)
+    assert [episode.title for episode in retained_episodes] == [
+        original_episodes[0].title,
+        original_episodes[1].title,
+    ]
+    assert retained_episodes[0].ep_id == original_episodes[0].ep_id
+    assert retained_episodes[1].ep_id == original_episodes[1].ep_id
+    assert mydatabase.episode(original_episodes[2].ep_id) is None
+
+
+def test_database_reload_matches_duplicate_titles_by_enclosure(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    original_episodes = [
+        Episode(
+            myfeed,
+            title="Repeated title",
+            description="First original description",
+            enclosure="https://example.com/first.mp3",
+        ),
+        Episode(
+            myfeed,
+            title="Repeated title",
+            description="Second original description",
+            enclosure="https://example.com/second.mp3",
+        ),
+    ]
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, original_episodes)
+
+    stored_episodes = mydatabase.episodes(myfeed)
+    original_episode_ids = {
+        episode.enclosure: episode.ep_id for episode in stored_episodes
+    }
+    mydatabase.replace_progress(stored_episodes[0], 42000)
+    mydatabase.replace_progress(stored_episodes[1], 84000)
+
+    myqueue = Queue(display)
+    player = mock.MagicMock(spec=Player)
+    player.episode = stored_episodes[1]
+    myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "-1"
+
+    for _ in range(2):
+        reloaded_feed = Feed(file=myfeed_path)
+        reloaded_feed.parse_episodes = mock.MagicMock(
+            return_value=[
+                Episode(
+                    reloaded_feed,
+                    title="Repeated title",
+                    description="First updated description",
+                    enclosure="https://example.com/first.mp3",
+                ),
+                Episode(
+                    reloaded_feed,
+                    title="Repeated title",
+                    description="Second updated description",
+                    enclosure="https://example.com/second.mp3",
+                ),
+            ]
+        )
+        mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    stored_episodes = mydatabase.episodes(myfeed)
+    assert len(stored_episodes) == 2
+    reloaded_episodes = {
+        episode.enclosure: episode for episode in stored_episodes
+    }
+    assert len(reloaded_episodes) == 2
+    assert {
+        enclosure: episode.ep_id
+        for enclosure, episode in reloaded_episodes.items()
+    } == original_episode_ids
+    assert reloaded_episodes["https://example.com/first.mp3"].progress == 42000
+    assert (
+        reloaded_episodes["https://example.com/second.mp3"].progress == 84000
+    )
+    assert [episode.ep_id for episode in mydatabase.queue()] == [
+        original_episode_ids["https://example.com/second.mp3"]
+    ]
+
+
+def test_database_reload_disambiguates_duplicate_enclosures_by_title(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    shared_enclosure = "https://example.com/shared.mp3"
+    original_episodes = [
+        Episode(
+            myfeed,
+            title="Episode A",
+            description="Episode A description",
+            enclosure=shared_enclosure,
+        ),
+        Episode(
+            myfeed,
+            title="Episode B",
+            description="Original Episode B description",
+            enclosure=shared_enclosure,
+        ),
+    ]
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, original_episodes)
+
+    stored_episodes = mydatabase.episodes(myfeed)
+    original_episode_ids = {
+        episode.title: episode.ep_id for episode in stored_episodes
+    }
+    mydatabase.replace_progress(stored_episodes[0], 111)
+    mydatabase.replace_progress(stored_episodes[1], 222)
+
+    myqueue = Queue(display)
+    player = mock.MagicMock(spec=Player)
+    player.episode = stored_episodes[1]
+    myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    reloaded_feed.parse_episodes = mock.MagicMock(
+        return_value=[
+            Episode(
+                reloaded_feed,
+                title="Episode B",
+                description="Updated Episode B description",
+                enclosure=shared_enclosure,
+            )
+        ]
+    )
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "-1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    retained_episodes = {
+        episode.title: episode for episode in mydatabase.episodes(reloaded_feed)
+    }
+    assert set(retained_episodes) == {"Episode A", "Episode B"}
+    assert retained_episodes["Episode A"].ep_id == original_episode_ids["Episode A"]
+    assert retained_episodes["Episode A"].progress == 111
+    assert retained_episodes["Episode B"].ep_id == original_episode_ids["Episode B"]
+    assert retained_episodes["Episode B"].progress == 222
+    assert retained_episodes["Episode B"].description == "Updated Episode B description"
+    assert [episode.ep_id for episode in mydatabase.queue()] == [
+        original_episode_ids["Episode B"]
+    ]
+
+
+def test_database_reload_does_not_reuse_remaining_duplicate_enclosure(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    shared_enclosure = "https://example.com/shared.mp3"
+    original_episodes = [
+        Episode(myfeed, title="Episode A", enclosure=shared_enclosure),
+        Episode(myfeed, title="Episode B", enclosure=shared_enclosure),
+    ]
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, original_episodes)
+
+    stored_episodes = mydatabase.episodes(myfeed)
+    original_episode_ids = {
+        episode.title: episode.ep_id for episode in stored_episodes
+    }
+    mydatabase.replace_progress(stored_episodes[1], 222)
+
+    myqueue = Queue(display)
+    player = mock.MagicMock(spec=Player)
+    player.episode = stored_episodes[1]
+    myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    reloaded_feed.parse_episodes = mock.MagicMock(
+        return_value=[
+            Episode(
+                reloaded_feed,
+                title="Episode A",
+                enclosure=shared_enclosure,
+            ),
+            Episode(
+                reloaded_feed,
+                title="Episode C",
+                enclosure=shared_enclosure,
+            ),
+        ]
+    )
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "-1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    retained_episodes = {
+        episode.title: episode
+        for episode in mydatabase.episodes(reloaded_feed)
+    }
+    assert set(retained_episodes) == {"Episode A", "Episode B", "Episode C"}
+    assert (
+        retained_episodes["Episode A"].ep_id
+        == original_episode_ids["Episode A"]
+    )
+    assert (
+        retained_episodes["Episode B"].ep_id
+        == original_episode_ids["Episode B"]
+    )
+    assert retained_episodes["Episode B"].progress == 222
+    assert (
+        retained_episodes["Episode C"].ep_id
+        not in original_episode_ids.values()
+    )
+    assert retained_episodes["Episode C"].progress == 0
+    assert [episode.ep_id for episode in mydatabase.queue()] == [
+        original_episode_ids["Episode B"]
+    ]
+
+
+def test_database_reload_does_not_reuse_remaining_duplicate_title(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    original_episodes = [
+        Episode(
+            myfeed,
+            title="Repeated title",
+            enclosure="https://example.com/a.mp3",
+        ),
+        Episode(
+            myfeed,
+            title="Repeated title",
+            enclosure="https://example.com/b.mp3",
+        ),
+    ]
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, original_episodes)
+
+    stored_episodes = mydatabase.episodes(myfeed)
+    original_episode_ids = {
+        episode.enclosure: episode.ep_id for episode in stored_episodes
+    }
+    mydatabase.replace_progress(stored_episodes[1], 222)
+    mydatabase.replace_download(
+        stored_episodes[1], "example/b.mp3", "a" * 64
+    )
+
+    myqueue = Queue(display)
+    player = mock.MagicMock(spec=Player)
+    player.episode = stored_episodes[1]
+    myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    reloaded_feed.parse_episodes = mock.MagicMock(
+        return_value=[
+            Episode(
+                reloaded_feed,
+                title="Repeated title",
+                enclosure="https://example.com/a.mp3",
+            ),
+            Episode(
+                reloaded_feed,
+                title="Repeated title",
+                enclosure="https://example.com/c.mp3",
+            ),
+        ]
+    )
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "-1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    retained_episodes = {
+        episode.enclosure: episode
+        for episode in mydatabase.episodes(reloaded_feed)
+    }
+    assert set(retained_episodes) == {
+        "https://example.com/a.mp3",
+        "https://example.com/b.mp3",
+        "https://example.com/c.mp3",
+    }
+    assert (
+        retained_episodes["https://example.com/a.mp3"].ep_id
+        == original_episode_ids["https://example.com/a.mp3"]
+    )
+    assert (
+        retained_episodes["https://example.com/b.mp3"].ep_id
+        == original_episode_ids["https://example.com/b.mp3"]
+    )
+    assert retained_episodes["https://example.com/b.mp3"].progress == 222
+    assert (
+        retained_episodes["https://example.com/b.mp3"].download_path
+        == "example/b.mp3"
+    )
+    assert (
+        retained_episodes["https://example.com/c.mp3"].ep_id
+        not in original_episode_ids.values()
+    )
+    assert retained_episodes["https://example.com/c.mp3"].progress == 0
+    assert retained_episodes["https://example.com/c.mp3"].download_path is None
+    assert [episode.ep_id for episode in mydatabase.queue()] == [
+        original_episode_ids["https://example.com/b.mp3"]
+    ]
+
+
+def test_database_reload_preserves_exact_duplicates(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    original_episodes = [
+        Episode(
+            myfeed,
+            title="Repeated episode",
+            description="Repeated description",
+            enclosure="https://example.com/shared.mp3",
+        )
+        for _ in range(2)
+    ]
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, original_episodes)
+
+    stored_episodes = mydatabase.episodes(myfeed)
+    original_episode_ids = [episode.ep_id for episode in stored_episodes]
+    mydatabase.replace_progress(stored_episodes[0], 111)
+    mydatabase.replace_progress(stored_episodes[1], 222)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    reloaded_feed.parse_episodes = mock.MagicMock(
+        return_value=[
+            Episode(
+                reloaded_feed,
+                title="Repeated episode",
+                description="Repeated description",
+                enclosure="https://example.com/shared.mp3",
+            )
+            for _ in range(2)
+        ]
+    )
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "-1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    retained_episodes = mydatabase.episodes(reloaded_feed)
+    retained_episode_ids = [episode.ep_id for episode in retained_episodes]
+    assert retained_episode_ids == original_episode_ids
+    assert [episode.progress for episode in retained_episodes] == [111, 222]
+
+
 def test_database_replace_queue(display):
     copyfile(my_dir + "/datafiles/database_example1.db", Database.PATH)
     mydatabase = Database()
