@@ -29,6 +29,8 @@ handling for existing downloads without a checksum.
 after successful completion.
 
 **Fixed**
+* Repeated shutdowns in the default in-memory database mode now replace an
+existing backup safely on Windows.
 * Terminal cleanup and stderr suppression no longer depend on Unix C-runtime
 symbols and now restore state after errors.
 * OPML imports now discover feeds in every nested folder instead of only the
