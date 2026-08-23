@@ -158,6 +158,25 @@ def test_database_replace_episode(prevent_modification):
     assert len(mydatabase.episodes(myfeed)) == 1
 
 
+def test_database_download_metadata(prevent_modification):
+    copyfile(my_dir + "/datafiles/database_example1.db", Database.PATH)
+    mydatabase = Database()
+    episode = mydatabase.episode(1)
+
+    mydatabase.replace_download(
+        episode, "feed_title/1-episode_title.mp3", "a" * 64
+    )
+
+    stored = mydatabase.episode(1)
+    assert stored.download_path == "feed_title/1-episode_title.mp3"
+    assert stored.download_checksum == "a" * 64
+
+    mydatabase.delete_download(stored)
+    stored = mydatabase.episode(1)
+    assert stored.download_path is None
+    assert stored.download_checksum is None
+
+
 def test_database_add_episodes(prevent_modification):
     copyfile(my_dir + "/datafiles/database_example1.db", Database.PATH)
     mydatabase = Database()

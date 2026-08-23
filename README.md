@@ -101,6 +101,33 @@ format.
 Importing and exporting from castero are available with command line flags.
 Run `castero --help` for details.
 
+### Verifying the database and downloads
+
+Run the following command to check castero's persisted SQLite database and
+downloaded episodes without starting the terminal interface:
+
+```bash
+$ castero --verify
+```
+
+Verification runs SQLite integrity and foreign-key checks, validates castero's
+records, inventories the active download directory, and compares tracked files
+with the SHA-256 checksums saved when their downloads completed. It reports
+missing, unreadable, duplicate, unexpected, and modified files. The configured
+`custom_download_dir` is honored.
+
+When run in an interactive terminal, castero offers repairs appropriate to each
+problem, such as removing an invalid record or file, redownloading an episode,
+or explicitly trusting an existing file as the checksum baseline. Existing
+downloads from older castero versions are reported as unverified until they are
+redownloaded or explicitly trusted. When input or output is redirected, the
+command is report-only and never changes data.
+
+Before the first database repair, castero creates a timestamped backup beside
+`castero.db`, named `castero.db.verify-backup-<timestamp>`. Low-level SQLite
+corruption is reported but is not rewritten automatically. The command exits
+with status `0` only when no problems remain and status `1` otherwise.
+
 ## Configuration
 
 Configuration and user data follow each operating system's native conventions:

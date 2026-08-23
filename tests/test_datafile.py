@@ -1,3 +1,5 @@
+import hashlib
+from pathlib import Path
 from unittest import mock
 
 import requests
@@ -23,6 +25,7 @@ def test_datafile_download(get, tmp_path):
     download_queue = mock.MagicMock()
     download_queue.length = 1
     output_path = tmp_path / "episode.mp3"
+    completed = mock.MagicMock()
 
     DataFile.download_to_file(
         "https://example.com/episode.mp3",
@@ -30,11 +33,15 @@ def test_datafile_download(get, tmp_path):
         "episode name",
         download_queue,
         display=display,
+        on_complete=completed,
     )
 
     get.assert_called_once_with("https://example.com/episode.mp3", stream=True)
     response.raise_for_status.assert_called_once_with()
     assert output_path.read_bytes() == b"some audio"
+    completed.assert_called_once_with(
+        output_path, hashlib.sha256(b"some audio").hexdigest()
+    )
     display.change_status.assert_any_call("Episode successfully downloaded.")
     assert display.menus_valid is False
     download_queue.next.assert_called_once_with()
@@ -76,6 +83,7 @@ def test_datafile_download_removes_partial_file(get, tmp_path):
     download_queue = mock.MagicMock()
     download_queue.length = 1
     output_path = tmp_path / "episode.mp3"
+    completed = mock.MagicMock()
 
     DataFile.download_to_file(
         "https://example.com/episode.mp3",
@@ -83,9 +91,12 @@ def test_datafile_download_removes_partial_file(get, tmp_path):
         "episode name",
         download_queue,
         display=display,
+        on_complete=completed,
     )
 
     assert not output_path.exists()
+    assert not Path(str(output_path) + ".part").exists()
+    completed.assert_not_called()
     display.change_status.assert_called_with("RequestException: stream interrupted")
     assert mock.call("Episode successfully downloaded.") not in display.change_status.call_args_list
     download_queue.next.assert_called_once_with()
@@ -150,15 +161,18 @@ def test_datafile_cancelled_download_removes_partial_file(get, tmp_path):
     get.return_value = response
     output_path = tmp_path / "feed" / "episode.mp3"
     DataFile.ensure_path(output_path)
+    completed = mock.MagicMock()
 
     DataFile.download_to_file(
         "https://example.com/episode.mp3",
         output_path,
         "episode name",
         download_queue,
+        on_complete=completed,
     )
 
     assert not output_path.exists()
     assert not output_path.parent.exists()
+    completed.assert_not_called()
     assert download_queue.length == 1
     next_episode.download.assert_called_once_with(download_queue, None)

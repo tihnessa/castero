@@ -16,6 +16,7 @@ from castero.config import Config
 from castero.database import Database
 from castero.feed import Feed
 from castero.subscriptions import Subscriptions
+from castero.verify import run_verify
 
 
 class TerminalDependencyError(RuntimeError):
@@ -134,15 +135,23 @@ def _format_help_keys() -> None:
 
 
 def main(argv=None):
-    database = Database()
     parser = argparse.ArgumentParser(prog=castero.__title__, description=castero.__description__)
     parser.add_argument(
         "-V", "--version", action="version", version="%(prog)s {}".format(castero.__version__)
     )
     parser.add_argument("--import", help="path to OPML file of feeds to add")
     parser.add_argument("--export", help="path to save feeds as OPML file")
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="verify the integrity of the database and downloaded episodes",
+    )
     args = parser.parse_args(argv)
 
+    if args.verify:
+        return run_verify()
+
+    database = Database()
     if vars(args)["import"] is not None:
         import_subscriptions(vars(args)["import"], database)
         return 0
