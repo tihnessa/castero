@@ -441,6 +441,83 @@ def test_database_reload_caps_retained_absent_episodes(display):
     assert mydatabase.episode(original_episodes[2].ep_id) is None
 
 
+def test_database_reload_matches_duplicate_titles_by_enclosure(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    original_episodes = [
+        Episode(
+            myfeed,
+            title="Repeated title",
+            description="First original description",
+            enclosure="https://example.com/first.mp3",
+        ),
+        Episode(
+            myfeed,
+            title="Repeated title",
+            description="Second original description",
+            enclosure="https://example.com/second.mp3",
+        ),
+    ]
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, original_episodes)
+
+    stored_episodes = mydatabase.episodes(myfeed)
+    original_episode_ids = {
+        episode.enclosure: episode.ep_id for episode in stored_episodes
+    }
+    mydatabase.replace_progress(stored_episodes[0], 42000)
+    mydatabase.replace_progress(stored_episodes[1], 84000)
+
+    myqueue = Queue(display)
+    player = mock.MagicMock(spec=Player)
+    player.episode = stored_episodes[1]
+    myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "-1"
+
+    for _ in range(2):
+        reloaded_feed = Feed(file=myfeed_path)
+        reloaded_feed.parse_episodes = mock.MagicMock(
+            return_value=[
+                Episode(
+                    reloaded_feed,
+                    title="Repeated title",
+                    description="First updated description",
+                    enclosure="https://example.com/first.mp3",
+                ),
+                Episode(
+                    reloaded_feed,
+                    title="Repeated title",
+                    description="Second updated description",
+                    enclosure="https://example.com/second.mp3",
+                ),
+            ]
+        )
+        mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    stored_episodes = mydatabase.episodes(myfeed)
+    assert len(stored_episodes) == 2
+    reloaded_episodes = {
+        episode.enclosure: episode for episode in stored_episodes
+    }
+    assert len(reloaded_episodes) == 2
+    assert {
+        enclosure: episode.ep_id
+        for enclosure, episode in reloaded_episodes.items()
+    } == original_episode_ids
+    assert reloaded_episodes["https://example.com/first.mp3"].progress == 42000
+    assert (
+        reloaded_episodes["https://example.com/second.mp3"].progress == 84000
+    )
+    assert [episode.ep_id for episode in mydatabase.queue()] == [
+        original_episode_ids["https://example.com/second.mp3"]
+    ]
+
+
 def test_database_replace_queue(display):
     copyfile(my_dir + "/datafiles/database_example1.db", Database.PATH)
     mydatabase = Database()

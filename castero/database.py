@@ -621,12 +621,10 @@ class Database:
         Therefore, Episode.replace_from() _must_ be updated if any new user
         metadata fields are added.
 
-        Also: to determine which episodes are the same in order to copy user
-        metadata, we simply check whether the string representation of the two
-        episodes are matching (usually the episodes' titles). This could cause
-        issues if a feed has multiple episodes with the same title, although it
-        does not require episode titles to be globally unique (that is,
-        episodes with the same name in different feeds will never have issues).
+        To determine which episodes are the same, we first compare enclosure
+        URLs. As a compatibility fallback for feeds that change those URLs, we
+        compare string representations (usually episode titles) when exactly
+        one unmatched stored episode has the same representation.
 
         This method adheres to the max_episodes config parameter to limit the
         number of episodes saved per feed. If retain_absent_episodes is enabled,
@@ -725,14 +723,47 @@ class Database:
         new_episodes = new_feed.parse_episodes()
         old_episodes = self.episodes(new_feed)
         episode_progresses = {}
-        present_episode_ids = set()
+        current_enclosures = {episode.enclosure for episode in new_episodes}
+        present_episode_ids = {
+            episode.ep_id
+            for episode in old_episodes
+            if episode.enclosure in current_enclosures
+        }
+        unmatched_old_episodes = list(old_episodes)
+        unmatched_new_episodes = []
+
+        def copy_user_metadata(new_episode, old_episode):
+            new_episode.replace_from(old_episode)
+            unmatched_old_episodes.remove(old_episode)
+            present_episode_ids.add(new_episode.ep_id)
+            if old_episode.progress != 0:
+                episode_progresses[new_episode.ep_id] = new_episode.progress
+
+        # Enclosures are required for parsed episodes and distinguish episodes
+        # even when a feed reuses the same title for multiple items.
         for new_ep in new_episodes:
-            matching_olds = [old_ep for old_ep in old_episodes if str(old_ep) == str(new_ep)]
+            matching_old = next(
+                (
+                    old_ep
+                    for old_ep in unmatched_old_episodes
+                    if old_ep.enclosure == new_ep.enclosure
+                ),
+                None,
+            )
+            if matching_old is None:
+                unmatched_new_episodes.append(new_ep)
+            else:
+                copy_user_metadata(new_ep, matching_old)
+
+        # Retain the existing title-based behavior only when it is unambiguous.
+        for new_ep in unmatched_new_episodes:
+            matching_olds = [
+                old_ep
+                for old_ep in unmatched_old_episodes
+                if str(old_ep) == str(new_ep)
+            ]
             if len(matching_olds) == 1:
-                new_ep.replace_from(matching_olds[0])
-                present_episode_ids.add(new_ep.ep_id)
-                if matching_olds[0].progress != 0:
-                    episode_progresses[str(new_ep)] = new_ep.progress
+                copy_user_metadata(new_ep, matching_olds[0])
 
         retained_absent_episodes = []
         if helpers.is_true(Config["retain_absent_episodes"]):
@@ -772,5 +803,5 @@ class Database:
         # ensure episodes have their progress carried over, if necessary
         added_episodes = self.episodes(new_feed)
         for episode in added_episodes:
-            if str(episode) in episode_progresses:
-                self.replace_progress(episode, episode_progresses[str(episode)])
+            if episode.ep_id in episode_progresses:
+                self.replace_progress(episode, episode_progresses[episode.ep_id])
