@@ -629,7 +629,9 @@ class Database:
         episodes with the same name in different feeds will never have issues).
 
         This method adheres to the max_episodes config parameter to limit the
-        number of episodes saved per feed.
+        number of episodes saved per feed. If retain_absent_episodes is enabled,
+        episodes missing from the refreshed feed fill any space remaining under
+        that limit after episodes from the current feed are retained.
 
         :param display (optional) the display to write status updates to
         :param feeds (optional) a list of feeds to reload. If not specified,
@@ -723,28 +725,43 @@ class Database:
         new_episodes = new_feed.parse_episodes()
         old_episodes = self.episodes(new_feed)
         episode_progresses = {}
+        present_episode_ids = set()
         for new_ep in new_episodes:
             matching_olds = [old_ep for old_ep in old_episodes if str(old_ep) == str(new_ep)]
             if len(matching_olds) == 1:
                 new_ep.replace_from(matching_olds[0])
+                present_episode_ids.add(new_ep.ep_id)
                 if matching_olds[0].progress != 0:
                     episode_progresses[str(new_ep)] = new_ep.progress
+
+        retained_absent_episodes = []
+        if helpers.is_true(Config["retain_absent_episodes"]):
+            retained_absent_episodes = [
+                episode
+                for episode in old_episodes
+                if episode.ep_id not in present_episode_ids
+            ]
 
         # limit number of episodes, if necessary
         max_episodes = int(Config["max_episodes"])
         if max_episodes != -1:
             new_episodes = new_episodes[:max_episodes]
+            remaining_capacity = max(0, max_episodes - len(new_episodes))
+            retained_absent_episodes = retained_absent_episodes[:remaining_capacity]
 
         # update the feed and its episodes in the database
         self.replace_feed(new_feed)
         self.replace_episodes(new_feed, new_episodes)
 
         # Feed replacement used to delete every old episode through a foreign
-        # key cascade. Retained episodes are now updated in place, so remove
-        # only episodes that disappeared or were excluded by max_episodes.
+        # key cascade. Remove only episodes outside the final retention set so
+        # user data for current and retained absent episodes remains attached.
         retained_episode_ids = {
             episode.ep_id for episode in new_episodes if episode.ep_id is not None
         }
+        retained_episode_ids.update(
+            episode.ep_id for episode in retained_absent_episodes
+        )
         removed_episodes = [
             episode
             for episode in old_episodes

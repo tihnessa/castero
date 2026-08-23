@@ -339,6 +339,108 @@ def test_database_reload_preserves_queued_retained_episode(display):
     assert len(mydatabase.episodes(reloaded_feed)) == 1
 
 
+def test_database_reload_retains_absent_episodes_and_metadata(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, myfeed.parse_episodes())
+
+    original_episodes = mydatabase.episodes(myfeed)
+    original_episode_ids = {
+        episode.title: episode.ep_id for episode in original_episodes
+    }
+    absent_episode = original_episodes[1]
+    mydatabase.replace_progress(absent_episode, 42000)
+
+    myqueue = Queue(display)
+    player = mock.MagicMock(spec=Player)
+    player.episode = absent_episode
+    myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    current_episode = reloaded_feed.parse_episodes()[0]
+    reloaded_feed.parse_episodes = mock.MagicMock(return_value=[current_episode])
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "-1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    retained_episodes = {
+        episode.title: episode for episode in mydatabase.episodes(reloaded_feed)
+    }
+    assert {
+        title: episode.ep_id for title, episode in retained_episodes.items()
+    } == original_episode_ids
+    assert retained_episodes[absent_episode.title].progress == 42000
+    assert [episode.ep_id for episode in mydatabase.queue()] == [
+        absent_episode.ep_id
+    ]
+
+
+def test_database_reload_removes_absent_episodes_when_retention_disabled(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, myfeed.parse_episodes())
+
+    original_episodes = mydatabase.episodes(myfeed)
+    absent_episode = original_episodes[1]
+    mydatabase.replace_progress(absent_episode, 42000)
+
+    myqueue = Queue(display)
+    player = mock.MagicMock(spec=Player)
+    player.episode = absent_episode
+    myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    current_episode = reloaded_feed.parse_episodes()[0]
+    reloaded_feed.parse_episodes = mock.MagicMock(return_value=[current_episode])
+    Config.data["retain_absent_episodes"] = "False"
+    Config.data["max_episodes"] = "-1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    reloaded_episodes = mydatabase.episodes(reloaded_feed)
+    assert [episode.title for episode in reloaded_episodes] == [
+        current_episode.title
+    ]
+    assert mydatabase.episode(absent_episode.ep_id) is None
+    assert mydatabase.queue() == []
+
+
+def test_database_reload_caps_retained_absent_episodes(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, myfeed.parse_episodes())
+
+    original_episodes = mydatabase.episodes(myfeed)
+    reloaded_feed = Feed(file=myfeed_path)
+    current_episode = reloaded_feed.parse_episodes()[0]
+    reloaded_feed.parse_episodes = mock.MagicMock(return_value=[current_episode])
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "2"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    retained_episodes = mydatabase.episodes(reloaded_feed)
+    assert [episode.title for episode in retained_episodes] == [
+        original_episodes[0].title,
+        original_episodes[1].title,
+    ]
+    assert retained_episodes[0].ep_id == original_episodes[0].ep_id
+    assert retained_episodes[1].ep_id == original_episodes[1].ep_id
+    assert mydatabase.episode(original_episodes[2].ep_id) is None
+
+
 def test_database_replace_queue(display):
     copyfile(my_dir + "/datafiles/database_example1.db", Database.PATH)
     mydatabase = Database()

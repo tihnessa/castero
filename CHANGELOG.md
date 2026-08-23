@@ -29,6 +29,8 @@ handling for existing downloads without a checksum.
 after successful completion.
 
 **Fixed**
+* Feed refreshes now honor `retain_absent_episodes`, preserving playback
+progress and saved queue entries for retained episodes.
 * Feed-menu filtering now renders and acts on the same feed and matches titles
 case-insensitively.
 * Repeated shutdowns in the default in-memory database mode now replace an

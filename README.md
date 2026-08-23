@@ -148,6 +148,12 @@ created after the client is run for the first time.
 Please see the [default castero.conf](https://github.com/xgi/castero/blob/master/castero/templates/castero.conf)
 for a list of available settings.
 
+When `retain_absent_episodes` is enabled, refreshing a feed keeps stored
+episodes that are missing from its latest RSS response. `max_episodes` remains
+a hard per-feed limit: current RSS episodes take priority, and absent episodes
+fill any remaining capacity. Set `max_episodes` to `-1` to retain all absent
+episodes.
+
 User data includes downloaded episodes and a database containing feed
 information and the saved playback queue. The `custom_download_dir` setting
 accepts POSIX paths, Windows drive-letter paths such as `D:\\Podcasts`, UNC
@@ -155,9 +161,10 @@ paths such as `\\\\server\\share\\Podcasts`, environment variables, and `~`.
 By default, castero works from an in-memory copy and writes it to `castero.db`
 on clean shutdown. The preceding on-disk database is retained as
 `castero.db.old`, replacing an earlier backup when necessary.
-Refreshing feeds preserves queued episodes that remain in those feeds. Deleting
-a feed also deletes its downloaded episodes. These files are not intended to be
-manually modified.
+Refreshing feeds preserves queue entries for episodes that remain stored,
+including absent episodes when retention is enabled. Deleting a feed also
+deletes its downloaded episodes. These files are not intended to be manually
+modified.
 
 ### Platform troubleshooting
 
