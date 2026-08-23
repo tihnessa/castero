@@ -725,54 +725,105 @@ class Database:
         episode_progresses = {}
         present_episode_ids = set()
         unmatched_old_episodes = list(old_episodes)
-        unmatched_new_episodes = []
+        unmatched_new_episodes = list(new_episodes)
 
         def copy_user_metadata(new_episode, old_episode):
             new_episode.replace_from(old_episode)
             unmatched_old_episodes.remove(old_episode)
+            unmatched_new_episodes.remove(new_episode)
             present_episode_ids.add(new_episode.ep_id)
             if old_episode.progress != 0:
                 episode_progresses[new_episode.ep_id] = new_episode.progress
 
-        # Enclosures are required for parsed episodes and usually distinguish
-        # episodes even when a feed reuses the same title. Some feeds also
-        # reuse enclosure URLs, so narrow those matches with other identifying
-        # metadata before carrying user data to a refreshed episode.
-        for new_ep in new_episodes:
-            matching_olds = [
-                old_ep
-                for old_ep in unmatched_old_episodes
-                if old_ep.enclosure == new_ep.enclosure
-            ]
-            for identity in (
-                lambda episode: str(episode),
-                lambda episode: episode.link,
-                lambda episode: episode.pubdate,
-            ):
-                if len(matching_olds) <= 1:
-                    break
-                narrower_matches = [
-                    old_ep
-                    for old_ep in matching_olds
-                    if identity(old_ep) == identity(new_ep)
-                ]
-                if narrower_matches:
-                    matching_olds = narrower_matches
+        def match_unique(identity):
+            """Match identities that occur once on each side of the refresh."""
+            old_by_identity = {}
+            new_by_identity = {}
+            for episode in old_episodes:
+                value = identity(episode)
+                if value is not None:
+                    old_by_identity.setdefault(value, []).append(episode)
+            for episode in new_episodes:
+                value = identity(episode)
+                if value is not None:
+                    new_by_identity.setdefault(value, []).append(episode)
 
-            if len(matching_olds) == 1:
-                copy_user_metadata(new_ep, matching_olds[0])
-            else:
-                unmatched_new_episodes.append(new_ep)
+            for value, matching_olds in old_by_identity.items():
+                matching_news = new_by_identity.get(value, [])
+                if len(matching_olds) == 1 and len(matching_news) == 1:
+                    old_episode = matching_olds[0]
+                    new_episode = matching_news[0]
+                    if (
+                        old_episode in unmatched_old_episodes
+                        and new_episode in unmatched_new_episodes
+                    ):
+                        copy_user_metadata(new_episode, old_episode)
+
+        # Enclosures are required for parsed episodes and usually distinguish
+        # episodes even when a feed reuses the same title. Match globally
+        # unique enclosures first. For reused enclosures, require another
+        # identifying field that is also globally unique within that enclosure
+        # group. Computing uniqueness before consuming any candidates keeps the
+        # result independent of RSS order.
+        match_unique(lambda episode: episode.enclosure)
+        match_unique(lambda episode: (episode.enclosure, str(episode)))
+        match_unique(
+            lambda episode: (
+                (episode.enclosure, episode.link)
+                if episode._link is not None
+                else None
+            )
+        )
+        match_unique(
+            lambda episode: (
+                (episode.enclosure, episode.pubdate)
+                if episode._pubdate is not None
+                else None
+            )
+        )
+
+        # Entries with identical feed metadata cannot be distinguished by any
+        # parsed identity field. Pair their occurrences deterministically so an
+        # unchanged feed containing exact duplicates does not grow on every
+        # refresh when absent-episode retention is enabled.
+        old_by_metadata = {}
+        new_by_metadata = {}
+        for episode in unmatched_old_episodes:
+            metadata = (
+                episode.title,
+                episode.description,
+                episode.link,
+                episode.pubdate,
+                episode.copyright,
+                episode.enclosure,
+            )
+            old_by_metadata.setdefault(metadata, []).append(episode)
+        for episode in unmatched_new_episodes:
+            metadata = (
+                episode.title,
+                episode.description,
+                episode.link,
+                episode.pubdate,
+                episode.copyright,
+                episode.enclosure,
+            )
+            new_by_metadata.setdefault(metadata, []).append(episode)
+        for metadata, matching_olds in old_by_metadata.items():
+            matching_news = new_by_metadata.get(metadata, [])
+            for old_episode, new_episode in zip(matching_olds, matching_news):
+                copy_user_metadata(new_episode, old_episode)
 
         # Retain the existing title-based behavior only when it is unambiguous.
-        for new_ep in unmatched_new_episodes:
-            matching_olds = [
-                old_ep
-                for old_ep in unmatched_old_episodes
-                if str(old_ep) == str(new_ep)
-            ]
-            if len(matching_olds) == 1:
-                copy_user_metadata(new_ep, matching_olds[0])
+        old_titles = {}
+        new_titles = {}
+        for episode in unmatched_old_episodes:
+            old_titles.setdefault(str(episode), []).append(episode)
+        for episode in unmatched_new_episodes:
+            new_titles.setdefault(str(episode), []).append(episode)
+        for title, matching_olds in old_titles.items():
+            matching_news = new_titles.get(title, [])
+            if len(matching_olds) == 1 and len(matching_news) == 1:
+                copy_user_metadata(matching_news[0], matching_olds[0])
 
         retained_absent_episodes = []
         if helpers.is_true(Config["retain_absent_episodes"]):

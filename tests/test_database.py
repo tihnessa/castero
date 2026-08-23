@@ -584,6 +584,120 @@ def test_database_reload_disambiguates_duplicate_enclosures_by_title(display):
     ]
 
 
+def test_database_reload_does_not_reuse_remaining_duplicate_enclosure(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    shared_enclosure = "https://example.com/shared.mp3"
+    original_episodes = [
+        Episode(myfeed, title="Episode A", enclosure=shared_enclosure),
+        Episode(myfeed, title="Episode B", enclosure=shared_enclosure),
+    ]
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, original_episodes)
+
+    stored_episodes = mydatabase.episodes(myfeed)
+    original_episode_ids = {
+        episode.title: episode.ep_id for episode in stored_episodes
+    }
+    mydatabase.replace_progress(stored_episodes[1], 222)
+
+    myqueue = Queue(display)
+    player = mock.MagicMock(spec=Player)
+    player.episode = stored_episodes[1]
+    myqueue.add(player)
+    mydatabase.replace_queue(myqueue)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    reloaded_feed.parse_episodes = mock.MagicMock(
+        return_value=[
+            Episode(
+                reloaded_feed,
+                title="Episode A",
+                enclosure=shared_enclosure,
+            ),
+            Episode(
+                reloaded_feed,
+                title="Episode C",
+                enclosure=shared_enclosure,
+            ),
+        ]
+    )
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "-1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    retained_episodes = {
+        episode.title: episode
+        for episode in mydatabase.episodes(reloaded_feed)
+    }
+    assert set(retained_episodes) == {"Episode A", "Episode B", "Episode C"}
+    assert (
+        retained_episodes["Episode A"].ep_id
+        == original_episode_ids["Episode A"]
+    )
+    assert (
+        retained_episodes["Episode B"].ep_id
+        == original_episode_ids["Episode B"]
+    )
+    assert retained_episodes["Episode B"].progress == 222
+    assert (
+        retained_episodes["Episode C"].ep_id
+        not in original_episode_ids.values()
+    )
+    assert retained_episodes["Episode C"].progress == 0
+    assert [episode.ep_id for episode in mydatabase.queue()] == [
+        original_episode_ids["Episode B"]
+    ]
+
+
+def test_database_reload_preserves_exact_duplicates(display):
+    mydatabase = display.database
+
+    myfeed_path = my_dir + "/feeds/valid_basic.xml"
+    myfeed = Feed(file=myfeed_path)
+    original_episodes = [
+        Episode(
+            myfeed,
+            title="Repeated episode",
+            description="Repeated description",
+            enclosure="https://example.com/shared.mp3",
+        )
+        for _ in range(2)
+    ]
+    mydatabase.replace_feed(myfeed)
+    mydatabase.replace_episodes(myfeed, original_episodes)
+
+    stored_episodes = mydatabase.episodes(myfeed)
+    original_episode_ids = [episode.ep_id for episode in stored_episodes]
+    mydatabase.replace_progress(stored_episodes[0], 111)
+    mydatabase.replace_progress(stored_episodes[1], 222)
+
+    reloaded_feed = Feed(file=myfeed_path)
+    reloaded_feed.parse_episodes = mock.MagicMock(
+        return_value=[
+            Episode(
+                reloaded_feed,
+                title="Repeated episode",
+                description="Repeated description",
+                enclosure="https://example.com/shared.mp3",
+            )
+            for _ in range(2)
+        ]
+    )
+    Config.data["retain_absent_episodes"] = "True"
+    Config.data["max_episodes"] = "-1"
+
+    mydatabase._reload_feed_data(myfeed, reloaded_feed)
+
+    retained_episodes = mydatabase.episodes(reloaded_feed)
+    retained_episode_ids = [episode.ep_id for episode in retained_episodes]
+    assert retained_episode_ids == original_episode_ids
+    assert [episode.progress for episode in retained_episodes] == [111, 222]
+
+
 def test_database_replace_queue(display):
     copyfile(my_dir + "/datafiles/database_example1.db", Database.PATH)
     mydatabase = Database()
