@@ -1,4 +1,5 @@
 import os
+import sqlite3
 from shutil import copyfile
 from unittest import mock
 
@@ -15,6 +16,43 @@ my_dir = os.path.dirname(os.path.realpath(__file__))
 def test_database_default(prevent_modification):
     mydatabase = Database()
     assert isinstance(mydatabase, Database)
+
+
+def test_database_close_replaces_existing_backup_on_windows(tmp_path, monkeypatch):
+    database_path = tmp_path / "castero.db"
+    monkeypatch.setattr(Database, "PATH", str(database_path))
+    monkeypatch.setattr(Database, "OLD_PATH", str(tmp_path / "feeds"))
+    Config.data["restrict_memory_usage"] = "False"
+
+    first_database = Database()
+    feed = Feed(file=my_dir + "/feeds/valid_basic.xml")
+    first_database.replace_feed(feed)
+    first_database.close()
+
+    second_database = Database()
+    feed._title = "updated feed title"
+    second_database.replace_feed(feed)
+
+    original_rename = os.rename
+
+    def windows_rename(source, destination):
+        if os.path.exists(destination):
+            raise FileExistsError(destination)
+        original_rename(source, destination)
+
+    monkeypatch.setattr(os, "rename", windows_rename)
+    second_database.close()
+
+    current_connection = sqlite3.connect(database_path)
+    current_title = current_connection.execute("select title from feed").fetchone()[0]
+    current_connection.close()
+
+    backup_connection = sqlite3.connect(str(database_path) + ".old")
+    backup_title = backup_connection.execute("select title from feed").fetchone()[0]
+    backup_connection.close()
+
+    assert current_title == "updated feed title"
+    assert backup_title == "myfeed title"
 
 
 def test_database_feeds_length(prevent_modification):

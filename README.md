@@ -150,6 +150,9 @@ User data includes downloaded episodes and a database containing feed
 information and the saved playback queue. The `custom_download_dir` setting
 accepts POSIX paths, Windows drive-letter paths such as `D:\\Podcasts`, UNC
 paths such as `\\\\server\\share\\Podcasts`, environment variables, and `~`.
+By default, castero works from an in-memory copy and writes it to `castero.db`
+on clean shutdown. The preceding on-disk database is retained as
+`castero.db.old`, replacing an earlier backup when necessary.
 Refreshing feeds preserves queued episodes that remain in those feeds. Deleting
 a feed also deletes its downloaded episodes. These files are not intended to be
 manually modified.
