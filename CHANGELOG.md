@@ -17,10 +17,16 @@ See also <https://github.com/xgi/castero/releases>.
 * Added native Linux, macOS, and Windows application directories, terminal
 startup support, player dependency diagnostics, and CI coverage.
 * Added Windows drive-letter and UNC download path support.
+* Added `castero --verify` to check SQLite integrity, application records, and
+downloaded episode files, with confirmed repair and removal actions.
+* Added stored SHA-256 metadata for completed downloads and verification-safe
+handling for existing downloads without a checksum.
 
 **Changed**
 * Configuration and data paths now follow platform conventions through
 `platformdirs`; Linux continues to honor the XDG base-directory variables.
+* Episode downloads are written to temporary files and atomically promoted only
+after successful completion.
 
 **Fixed**
 * Terminal cleanup and stderr suppression no longer depend on Unix C-runtime

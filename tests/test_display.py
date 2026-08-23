@@ -228,6 +228,23 @@ def test_display_delete_feed_cancels_active_download(display):
     assert display._download_queue.cancelled
 
 
+def test_display_terminate_stops_downloads_before_closing_database(display):
+    calls = mock.Mock()
+    display._download_queue.stop = calls.stop_downloads
+    display._queue.stop = calls.stop_players
+    display.database.replace_queue = calls.replace_queue
+    display.database.close = calls.close_database
+
+    display.terminate()
+
+    assert calls.method_calls == [
+        mock.call.stop_downloads(),
+        mock.call.stop_players(),
+        mock.call.replace_queue(display._queue),
+        mock.call.close_database(),
+    ]
+
+
 def test_display_execute_command(display):
     myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")
     myepisode = Episode(

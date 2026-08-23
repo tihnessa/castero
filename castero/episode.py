@@ -1,4 +1,5 @@
 import os
+from pathlib import Path, PurePosixPath
 import threading
 
 from castero import constants
@@ -25,6 +26,8 @@ class Episode:
         enclosure=None,
         played=False,
         progress=None,
+        download_path=None,
+        download_checksum=None,
     ) -> None:
         """
         At least one of a title or description must be specified.
@@ -37,6 +40,8 @@ class Episode:
         :param copyright (optional) the copyright notice of the episode
         :param enclosure (optional) a url to a media file
         :param played (optional) whether the episode has been played
+        :param download_path (optional) normalized path relative to the download root
+        :param download_checksum (optional) trusted SHA-256 digest of the download
         """
         assert title is not None or description is not None
 
@@ -50,6 +55,8 @@ class Episode:
         self._enclosure = enclosure
         self._played = played
         self._progress = progress
+        self._download_path = download_path
+        self._download_checksum = download_checksum
         self._downloaded = None
 
     def __str__(self) -> str:
@@ -66,6 +73,11 @@ class Episode:
 
         return representation
 
+    def _download_root(self) -> Path:
+        """Return the active root directory for downloaded episodes."""
+        configured_path = "" if Config is None else Config["custom_download_dir"]
+        return Path(download_path(configured_path, default=DataFile.DEFAULT_DOWNLOADED_DIR))
+
     def _feed_directory(self) -> str:
         """Gets the path to the downloaded episode's feed directory.
 
@@ -75,9 +87,41 @@ class Episode:
         :returns str: a path to the feed directory
         """
         feed_dirname = helpers.sanitize_path(str(self._feed))
-        configured_path = "" if Config is None else Config["custom_download_dir"]
-        path = download_path(configured_path, default=DataFile.DEFAULT_DOWNLOADED_DIR)
-        return os.path.join(path, feed_dirname)
+        return os.path.join(str(self._download_root()), feed_dirname)
+
+    def _stored_download_file(self):
+        """Return the absolute recorded download path, if one is available."""
+        if self._download_path is None:
+            return None
+        if not isinstance(self._download_path, str) or "\\" in self._download_path:
+            return None
+        relative = PurePosixPath(self._download_path)
+        if (
+            relative.is_absolute()
+            or not relative.parts
+            or ".." in relative.parts
+            or relative.name.endswith(".part")
+        ):
+            return None
+        root = self._download_root().resolve()
+        candidate = root.joinpath(*relative.parts)
+        try:
+            candidate.resolve().relative_to(root)
+        except ValueError:
+            return None
+        return candidate
+
+    def _legacy_download_files(self, feed_directory):
+        """Yield completed files matching the legacy episode naming scheme."""
+        prefix = str(self.ep_id) + "-"
+        for filename in os.listdir(feed_directory):
+            path = os.path.join(feed_directory, filename)
+            if (
+                filename.startswith(prefix)
+                and not filename.endswith(".part")
+                and os.path.isfile(path)
+            ):
+                yield path
 
     def get_playable(self) -> str:
         """Gets a playable path for this episode.
@@ -90,11 +134,14 @@ class Episode:
         """
         playable = self.enclosure
 
+        stored_file = self._stored_download_file()
+        if stored_file is not None and stored_file.is_file():
+            return str(stored_file)
+
         feed_directory = self._feed_directory()
-        if os.path.exists(feed_directory):
-            for File in os.listdir(feed_directory):
-                if File.startswith(str(self.ep_id) + "-"):
-                    playable = os.path.join(feed_directory, File)
+        if self._download_path is None and os.path.exists(feed_directory):
+            for path in self._legacy_download_files(feed_directory):
+                playable = path
 
         return playable
 
@@ -123,15 +170,26 @@ class Episode:
         output_path = os.path.join(feed_directory, filename)
         DataFile.ensure_path(output_path)
 
+        def on_complete(path, checksum):
+            relative = Path(path).resolve().relative_to(self._download_root().resolve())
+            normalized = PurePosixPath(*relative.parts).as_posix()
+            self._download_path = normalized
+            self._download_checksum = checksum
+            self._downloaded = True
+            database = None if display is None else getattr(display, "database", None)
+            if database is not None:
+                database.replace_download(self, normalized, checksum)
+
         if display is not None:
             display.change_status("Starting episode download...")
 
         t = threading.Thread(
             target=DataFile.download_to_file,
-            args=[self._enclosure, output_path, str(self), download_queue, display],
+            args=[self._enclosure, output_path, str(self), download_queue, display, on_complete],
             name="download_%s" % str(self),
         )
         t.start()
+        return t
 
     def delete(self, display=None):
         """Deletes the episode file from the file system.
@@ -139,18 +197,29 @@ class Episode:
         :param display (optional) the display to write status updates to
         """
         if self.downloaded:
+            stored_file = self._stored_download_file()
             feed_directory = self._feed_directory()
-            if os.path.exists(feed_directory):
-                for File in os.listdir(feed_directory):
-                    if File.startswith(str(self.ep_id) + "-"):
-                        os.remove(os.path.join(feed_directory, File))
-                        self._downloaded = False
-                        if display is not None:
-                            display.change_status("Successfully deleted the downloaded episode")
+            if stored_file is not None:
+                if stored_file.exists():
+                    stored_file.unlink()
+                directory = stored_file.parent
+                if directory.is_dir() and len(os.listdir(str(directory))) == 0:
+                    directory.rmdir()
+                self._downloaded = False
+            elif os.path.exists(feed_directory):
+                for path in self._legacy_download_files(feed_directory):
+                    os.remove(path)
+                    self._downloaded = False
+                    if display is not None:
+                        display.change_status("Successfully deleted the downloaded episode")
 
                 # if there are no more files in the feed directory, delete it
                 if len(os.listdir(feed_directory)) == 0:
                     os.rmdir(feed_directory)
+
+            database = None if display is None else getattr(display, "database", None)
+            if database is not None and self._download_path is not None:
+                database.delete_download(self)
 
     def check_downloaded(self) -> bool:
         """Check whether the episode is downloaded.
@@ -160,12 +229,16 @@ class Episode:
         :returns bool: whether or not the episode is downloaded
         """
         self._downloaded = False
-        feed_directory = self._feed_directory()
+        stored_file = self._stored_download_file()
+        if stored_file is not None:
+            self._downloaded = stored_file.is_file()
+            return self._downloaded
+        if self._download_path is not None:
+            return self._downloaded
 
+        feed_directory = self._feed_directory()
         if os.path.exists(feed_directory):
-            for File in os.listdir(feed_directory):
-                if File.startswith(str(self.ep_id) + "-"):
-                    self._downloaded = True
+            self._downloaded = next(self._legacy_download_files(feed_directory), None) is not None
         return self._downloaded
 
     def replace_from(self, episode) -> None:
@@ -176,6 +249,8 @@ class Episode:
         self._ep_id = episode._ep_id
         self._played = episode._played
         self._progress = episode._progress
+        self._download_path = episode._download_path
+        self._download_checksum = episode._download_checksum
 
     @property
     def downloaded(self) -> bool:
@@ -202,6 +277,25 @@ class Episode:
     @ep_id.setter
     def ep_id(self, ep_id) -> None:
         self._ep_id = ep_id
+
+    @property
+    def download_path(self):
+        """str: normalized path relative to the active download directory."""
+        return self._download_path
+
+    @download_path.setter
+    def download_path(self, path) -> None:
+        self._download_path = path
+        self._downloaded = None
+
+    @property
+    def download_checksum(self):
+        """str: trusted SHA-256 digest for the downloaded episode."""
+        return self._download_checksum
+
+    @download_checksum.setter
+    def download_checksum(self, checksum) -> None:
+        self._download_checksum = checksum
 
     @property
     def feed_str(self) -> str:

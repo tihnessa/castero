@@ -1,4 +1,5 @@
 import collections
+import hashlib
 import os
 import requests
 from shutil import copyfile
@@ -68,7 +69,7 @@ class DataFile:
             os.makedirs(path)
 
     @staticmethod
-    def download_to_file(url, file, name, download_queue, display=None):
+    def download_to_file(url, file, name, download_queue, display=None, on_complete=None):
         """Downloads a URL to a local file.
 
         :param url: the source url
@@ -76,11 +77,15 @@ class DataFile:
         :param name the user-friendly name of the content
         :param download_queue the download_queue overseeing this download
         :param display (optional) the display to write status updates to
+        :param on_complete (optional) callback receiving the path and SHA-256
+          digest after the file is atomically completed
         """
         chunk_size = 1024
         chunk_size_label = "KB"
         download_started = False
         download_completed = False
+        temporary_file = str(file) + ".part"
+        digest = hashlib.sha256()
 
         try:
             if getattr(download_queue, "cancelled", False) is True:
@@ -89,7 +94,7 @@ class DataFile:
             response = Net.Get(url, stream=True)
             response.raise_for_status()
 
-            with open(file, "wb") as handle:
+            with open(temporary_file, "wb") as handle:
                 download_started = True
                 downloaded = 0
                 for chunk in response.iter_content(chunk_size=chunk_size):
@@ -107,12 +112,26 @@ class DataFile:
                         display.change_status(status_str)
                     if chunk:
                         handle.write(chunk)
+                        digest.update(chunk)
                     downloaded += len(chunk)
 
-            download_completed = getattr(download_queue, "cancelled", False) is not True
-            if download_completed and display is not None:
-                display.change_status("Episode successfully downloaded.")
-                display.menus_valid = False
+            def complete_download():
+                os.replace(temporary_file, file)
+                if on_complete is not None:
+                    on_complete(file, digest.hexdigest())
+
+            finalize = getattr(type(download_queue), "finalize", None)
+            if finalize is None:
+                download_completed = getattr(download_queue, "cancelled", False) is not True
+                if download_completed:
+                    complete_download()
+            else:
+                download_completed = finalize(download_queue, complete_download)
+
+            if download_completed:
+                if display is not None:
+                    display.change_status("Episode successfully downloaded.")
+                    display.menus_valid = False
         except requests.exceptions.RequestException as e:
             if display is not None:
                 display.change_status("RequestException: %s" % str(e))
@@ -120,8 +139,8 @@ class DataFile:
             try:
                 cancelled = getattr(download_queue, "cancelled", False) is True
                 should_remove = cancelled or (download_started and not download_completed)
-                if should_remove and os.path.exists(file):
-                    os.remove(file)
+                if should_remove and os.path.exists(temporary_file):
+                    os.remove(temporary_file)
                 if cancelled:
                     directory = os.path.dirname(file)
                     if os.path.isdir(directory) and len(os.listdir(directory)) == 0:

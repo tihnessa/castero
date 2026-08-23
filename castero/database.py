@@ -32,10 +32,10 @@ class Database:
     OLD_PATH = os.path.join(DataFile.DATA_DIR, "feeds")
     MIGRATIONS_DIR = os.path.join(DataFile.PACKAGE, "templates/migrations")
 
-    SQL_EPISODES_BY_FEED_WITH_PROGRESS = "select episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time from episode left join progress on episode.id=progress.ep_id where feed_key=? order by episode.id"
-    SQL_EPISODES_WITH_PROGRESS = "select episode.feed_key, episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time from episode left join progress on episode.id=progress.ep_id order by episode.id"
-    SQL_EPISODES_BY_ID = "select episode.feed_key, episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time from episode left join progress on episode.id=progress.ep_id where episode.id=?"
-    SQL_UNPLAYED_EPISODES_BY_FEED = "select episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time from episode left join progress on episode.id=progress.ep_id where feed_key=? and played=0 order by episode.id"
+    SQL_EPISODES_BY_FEED_WITH_PROGRESS = "select episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time, download.path, download.sha256 from episode left join progress on episode.id=progress.ep_id left join download on episode.id=download.ep_id where feed_key=? order by episode.id"
+    SQL_EPISODES_WITH_PROGRESS = "select episode.feed_key, episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time, download.path, download.sha256 from episode left join progress on episode.id=progress.ep_id left join download on episode.id=download.ep_id order by episode.id"
+    SQL_EPISODES_BY_ID = "select episode.feed_key, episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time, download.path, download.sha256 from episode left join progress on episode.id=progress.ep_id left join download on episode.id=download.ep_id where episode.id=?"
+    SQL_UNPLAYED_EPISODES_BY_FEED = "select episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time, download.path, download.sha256 from episode left join progress on episode.id=progress.ep_id left join download on episode.id=download.ep_id where feed_key=? and played=0 order by episode.id"
     SQL_EPISODE_INSERT = "insert into episode (id, title, feed_key, description, link, pubdate, copyright, enclosure, played)\nvalues (?,?,?,?,?,?,?,?,?)"
     SQL_EPISODE_INSERT_NOID = "insert into episode (title, feed_key, description, link, pubdate, copyright, enclosure, played)\nvalues (?,?,?,?,?,?,?,?)"
     SQL_EPISODE_UPDATE = "update episode set title=?, feed_key=?, description=?, link=?, pubdate=?, copyright=?, enclosure=?, played=? where id=?"
@@ -56,6 +56,8 @@ class Database:
     SQL_QUEUE_DELETE = "delete from queue"
     SQL_EPISODE_PROGRESS_REPLACE = "replace into progress (ep_id, time)\nvalues (?,?)"
     SQL_EPISODE_PROGRESS_DELETE = "delete from progress where ep_id=?"
+    SQL_DOWNLOAD_REPLACE = "replace into download (ep_id, path, sha256)\nvalues (?,?,?)"
+    SQL_DOWNLOAD_DELETE = "delete from download where ep_id=?"
 
     def __init__(self):
         """
@@ -96,21 +98,26 @@ class Database:
             self._copy_database(self._conn, file_conn)
         self._conn.close()
 
+    @classmethod
+    def migrate_connection(cls, connection):
+        """Apply all packaged migrations to an SQLite connection."""
+        cursor = connection.cursor()
+        cur_version = cursor.execute("pragma user_version").fetchone()[0]
+
+        migration_files = list(os.listdir(cls.MIGRATIONS_DIR))
+        for migration in sorted(migration_files):
+            version = int(migration.split("-")[0])
+            if version > cur_version:
+                path = os.path.join(cls.MIGRATIONS_DIR, migration)
+                with open(path, "rt") as f:
+                    cursor.executescript(f.read())
+
     def migrate(self):
         """Apply SQL migrations.
 
         Migrations are defined in $PACKAGE/templtaes/migrations.
         """
-        cursor = self._conn.cursor()
-        cur_version = cursor.execute("pragma user_version").fetchone()[0]
-
-        migration_files = list(os.listdir(self.MIGRATIONS_DIR))
-        for migration in sorted(migration_files):
-            version = int(migration.split("-")[0])
-            if version > cur_version:
-                path = os.path.join(self.MIGRATIONS_DIR, migration)
-                with open(path, "rt") as f:
-                    cursor.executescript(f.read())
+        self.migrate_connection(self._conn)
 
     def _copy_database(self, from_connection, to_connection):
         """Copy database contents from one connection to another."""
@@ -365,6 +372,22 @@ class Database:
         cursor.execute(self.SQL_QUEUE_DELETE)
         self._conn.commit()
 
+    def replace_download(self, episode: Episode, path: str, checksum: str) -> None:
+        """Store the relative path and SHA-256 digest for a completed download."""
+        cursor = self._conn.cursor()
+        cursor.execute(self.SQL_DOWNLOAD_REPLACE, (episode.ep_id, path, checksum))
+        episode.download_path = path
+        episode.download_checksum = checksum
+        self._conn.commit()
+
+    def delete_download(self, episode: Episode) -> None:
+        """Remove the integrity metadata for an episode download."""
+        cursor = self._conn.cursor()
+        cursor.execute(self.SQL_DOWNLOAD_DELETE, (episode.ep_id,))
+        episode.download_path = None
+        episode.download_checksum = None
+        self._conn.commit()
+
     def replace_queue(self, queue: Queue) -> None:
         """Replace the queue in the database.
 
@@ -440,6 +463,8 @@ class Database:
                     enclosure=row[7],
                     played=row[8],
                     progress=row[9],
+                    download_path=row[10],
+                    download_checksum=row[11],
                 )
                 for row in rows
             ]
@@ -477,6 +502,8 @@ class Database:
                 enclosure=row[6],
                 played=row[7],
                 progress=row[8],
+                download_path=row[9],
+                download_checksum=row[10],
             )
             for row in episode_rows
         ]
@@ -532,6 +559,8 @@ class Database:
                 enclosure=result[7],
                 played=result[8],
                 progress=result[9],
+                download_path=result[10],
+                download_checksum=result[11],
             )
 
     def queue(self) -> List[Episode]:
@@ -572,6 +601,8 @@ class Database:
                     enclosure=result[7],
                     played=result[8],
                     progress=result[9],
+                    download_path=result[10],
+                    download_checksum=result[11],
                 )
 
         # queue may contain repeated ep_id's, so we need to go back to the

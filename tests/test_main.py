@@ -58,3 +58,14 @@ def test_display_loop_terminates_after_an_error():
             cli._display_loop(mock.MagicMock(), mock.MagicMock())
 
     display.terminate.assert_called_once_with()
+
+
+def test_verify_does_not_construct_normal_database():
+    with mock.patch("castero.__main__.Database") as database, mock.patch(
+        "castero.__main__.run_verify", return_value=1
+    ) as verify:
+        status = cli.main(["--verify"])
+
+    assert status == 1
+    verify.assert_called_once_with()
+    database.assert_not_called()

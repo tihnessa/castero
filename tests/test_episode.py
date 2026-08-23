@@ -131,6 +131,69 @@ def test_episode_playable_local():
     DataFile.DEFAULT_DOWNLOADED_DIR = os.path.join(DataFile.DATA_DIR, "downloaded")
 
 
+def test_episode_playable_uses_recorded_download_path(tmp_path):
+    DataFile.DEFAULT_DOWNLOADED_DIR = str(tmp_path)
+    recorded = tmp_path / "original_feed_title" / "1-original.mp3"
+    recorded.parent.mkdir()
+    recorded.write_bytes(b"audio")
+    feed = Feed(url="https://example.com/feed.xml", title="Renamed feed")
+    episode = Episode(
+        feed,
+        ep_id=1,
+        title="Renamed episode",
+        enclosure="https://example.com/new.mp3",
+        download_path="original_feed_title/1-original.mp3",
+        download_checksum="a" * 64,
+    )
+
+    assert episode.get_playable() == str(recorded)
+    assert episode.downloaded
+
+    DataFile.DEFAULT_DOWNLOADED_DIR = os.path.join(DataFile.DATA_DIR, "downloaded")
+
+
+def test_episode_does_not_play_partial_download(tmp_path):
+    DataFile.DEFAULT_DOWNLOADED_DIR = str(tmp_path)
+    partial = tmp_path / "Feed" / "1-Episode.mp3.part"
+    partial.parent.mkdir()
+    partial.write_bytes(b"partial audio")
+    feed = Feed(url="https://example.com/feed.xml", title="Feed")
+    episode = Episode(
+        feed,
+        ep_id=1,
+        title="Episode",
+        enclosure="https://example.com/episode.mp3",
+        download_path="Feed/1-Episode.mp3.part",
+        download_checksum="a" * 64,
+    )
+
+    assert episode.get_playable() == "https://example.com/episode.mp3"
+    assert not episode.downloaded
+
+    DataFile.DEFAULT_DOWNLOADED_DIR = os.path.join(DataFile.DATA_DIR, "downloaded")
+
+
+def test_episode_rejects_recorded_path_outside_download_root(tmp_path):
+    DataFile.DEFAULT_DOWNLOADED_DIR = str(tmp_path / "downloaded")
+    outside = tmp_path / "outside.mp3"
+    outside.write_bytes(b"audio")
+    feed = Feed(url="https://example.com/feed.xml", title="Feed")
+    episode = Episode(
+        feed,
+        ep_id=1,
+        title="Episode",
+        enclosure="https://example.com/episode.mp3",
+        download_path="../outside.mp3",
+        download_checksum="a" * 64,
+    )
+
+    assert episode.get_playable() == "https://example.com/episode.mp3"
+    assert not episode.downloaded
+    assert outside.exists()
+
+    DataFile.DEFAULT_DOWNLOADED_DIR = os.path.join(DataFile.DATA_DIR, "downloaded")
+
+
 def test_episode_delete(display):
     DataFile.DEFAULT_DOWNLOADED_DIR = os.path.join(my_dir, "downloaded")
     episode_location = os.path.join(DataFile.DEFAULT_DOWNLOADED_DIR, "myfeed_title/2-myfeed_item2_title.mp3")
@@ -153,14 +216,14 @@ def test_episode_download():
     mydownloadqueue = DownloadQueue()
     myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")
     myepisode = myfeed.parse_episodes()[1]
-    DataFile.download_to_file = mock.MagicMock(name="download_to_file")
-    myepisode.download(mydownloadqueue)
+    with mock.patch.object(DataFile, "download_to_file") as download_to_file:
+        myepisode.download(mydownloadqueue)
 
-    successful = True
-    for i in range(5000):
-        if DataFile.download_to_file.call_count == 1:
-            successful = True
-            break
+        successful = False
+        for i in range(5000):
+            if download_to_file.call_count == 1:
+                successful = True
+                break
 
     DataFile.DEFAULT_DOWNLOADED_DIR = os.path.join(DataFile.DATA_DIR, "downloaded")
     assert successful
@@ -171,15 +234,15 @@ def test_episode_download_with_display(display):
     mydownloadqueue = DownloadQueue()
     myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")
     myepisode = myfeed.parse_episodes()[1]
-    DataFile.download_to_file = mock.MagicMock(name="download_to_file")
     display.change_status = mock.MagicMock(name="change_status")
-    myepisode.download(mydownloadqueue, display=display)
+    with mock.patch.object(DataFile, "download_to_file") as download_to_file:
+        myepisode.download(mydownloadqueue, display=display)
 
-    successful = True
-    for i in range(5000):
-        if DataFile.download_to_file.call_count == 1:
-            successful = True
-            break
+        successful = False
+        for i in range(5000):
+            if download_to_file.call_count == 1:
+                successful = True
+                break
 
     DataFile.DEFAULT_DOWNLOADED_DIR = os.path.join(DataFile.DATA_DIR, "downloaded")
     assert successful
@@ -190,15 +253,15 @@ def test_episode_download_with_display_no_enclosure(display):
     mydownloadqueue = DownloadQueue()
     myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")
     myepisode = myfeed.parse_episodes()[1]
-    DataFile.download_to_file = mock.MagicMock(name="download_to_file")
     display.change_status = mock.MagicMock(name="change_status")
-    myepisode.download(mydownloadqueue, display=display)
+    with mock.patch.object(DataFile, "download_to_file") as download_to_file:
+        myepisode.download(mydownloadqueue, display=display)
 
-    successful = True
-    for i in range(5000):
-        if display.change_status.call_count == 1:
-            successful = True
-            break
+        successful = False
+        for i in range(5000):
+            if display.change_status.call_count == 1:
+                successful = True
+                break
 
     DataFile.DEFAULT_DOWNLOADED_DIR = os.path.join(DataFile.DATA_DIR, "downloaded")
     assert successful

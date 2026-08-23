@@ -652,6 +652,7 @@ class Display:
         a "wrapping up" method for any actions which need to be performed
         before the object is destroyed.
         """
+        self._download_queue.stop()
         self._queue.stop()
 
         self.database.replace_queue(self._queue)
