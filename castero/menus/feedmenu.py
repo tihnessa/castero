@@ -21,7 +21,10 @@ class FeedMenu(Menu):
     @property
     def _items(self):
         """A list of items in the menu represented as dictionaries."""
-        return [{"attr": curses.A_NORMAL, "tags": [], "text": str(feed)} for feed in self._feeds]
+        return [
+            {"attr": curses.A_NORMAL, "tags": [], "text": str(feed)}
+            for feed in self._filtered_feeds
+        ]
 
     @property
     def title(self) -> str:
@@ -73,4 +76,5 @@ class FeedMenu(Menu):
     @property
     def _filtered_feeds(self):
         """A list of feeds which match the menu filter."""
-        return list(filter(lambda feed: self._filter_text in str(feed).lower(), self._feeds))
+        query = self._filter_text.lower()
+        return [feed for feed in self._feeds if query in str(feed).lower()]

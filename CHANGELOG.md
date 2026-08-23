@@ -29,6 +29,8 @@ handling for existing downloads without a checksum.
 after successful completion.
 
 **Fixed**
+* Feed-menu filtering now renders and acts on the same feed and matches titles
+case-insensitively.
 * Repeated shutdowns in the default in-memory database mode now replace an
 existing backup safely on Windows.
 * Terminal cleanup and stderr suppression no longer depend on Unix C-runtime
