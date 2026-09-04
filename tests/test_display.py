@@ -6,6 +6,7 @@ from unittest import mock
 import pytest
 
 import castero
+from castero.database import Database
 from castero.display import Display, DisplaySizeError
 from castero.feed import Feed
 from castero.episode import Episode
@@ -261,10 +262,15 @@ def test_display_delete_feed_cancels_active_download(display):
 
 def test_display_terminate_stops_downloads_before_closing_database(display):
     calls = mock.Mock()
+    feed = Feed(url="feed url", title="feed title")
+    episode = Episode(feed, title="episode title", progress=1000)
+    display.modified_episodes.append(episode)
     display._workers.cancel = calls.cancel_workers
     display._download_queue.stop = calls.stop_downloads
     display._workers.shutdown = calls.join_workers
     display._queue.stop = calls.stop_players
+    display.database.replace_episode = calls.replace_episode
+    display.database.replace_progress = calls.replace_progress
     display.database.replace_queue = calls.replace_queue
     display.database.close = calls.close_database
 
@@ -275,9 +281,43 @@ def test_display_terminate_stops_downloads_before_closing_database(display):
         mock.call.stop_downloads(),
         mock.call.join_workers(),
         mock.call.stop_players(),
+        mock.call.replace_episode(feed, episode),
+        mock.call.replace_progress(episode, 1000),
         mock.call.replace_queue(display._queue),
         mock.call.close_database(),
     ]
+
+
+@pytest.mark.parametrize(
+    "initial_played, updated_played",
+    [(False, True), (True, False)],
+)
+def test_display_terminate_persists_pending_played_state(
+    stdscr, tmp_path, monkeypatch, initial_played, updated_played
+):
+    monkeypatch.setattr(Database, "PATH", str(tmp_path / "castero.db"))
+    monkeypatch.setattr(Database, "OLD_PATH", str(tmp_path / "feeds"))
+    display = Display(stdscr, Database())
+    reopened_database = None
+
+    try:
+        feed = Feed(url="feed url", title="feed title")
+        episode = Episode(feed, title="episode title", played=initial_played)
+        display.database.replace_feed(feed)
+        display.database.replace_episode(feed, episode)
+
+        episode.played = updated_played
+        display.modified_episodes.append(episode)
+        display.terminate()
+
+        reopened_database = Database()
+        persisted_episode = reopened_database.episode(episode.ep_id)
+
+        assert bool(persisted_episode.played) is updated_played
+    finally:
+        if reopened_database is not None:
+            reopened_database.close()
+        display.terminate()
 
 
 def test_display_terminate_joins_database_workers_before_close(display):
