@@ -32,7 +32,8 @@ after successful completion.
 * External episode commands now pass feed metadata as literal process arguments
 without invoking a shell, preventing shell injection. Existing shell-based
 `execute_command` templates must be moved into a separate script. Windows batch
-files are rejected when they would receive episode fields.
+files are rejected when they would receive episode fields, and native Windows
+paths retain their backslashes.
 * Feed refreshes now parse asynchronous HTTP responses directly instead of
 downloading each feed twice, and report accurate success and failure totals.
 * Played/unplayed episode changes are now persisted when castero exits before

@@ -157,10 +157,11 @@ when it contains spaces or shell metacharacters. castero does not invoke a
 shell, so pipes, redirects, environment-variable expansion, command
 substitution, and other shell syntax are not interpreted. Existing shell-based
 templates should be moved into a separate script, with `execute_command` set to
-that script and its arguments. On Windows, `.bat` and `.cmd` files cannot safely
-receive episode tokens because the operating system may run them through
-`cmd.exe`; invoke a script through a non-shell interpreter instead, such as
-`python hook.py {title}`.
+that script and its arguments. On Windows, use double quotes to group arguments;
+ordinary backslashes in paths are preserved. Windows `.bat` and `.cmd` files
+cannot safely receive episode tokens because the operating system may run them
+through `cmd.exe`; invoke a script through a non-shell interpreter instead,
+such as `python hook.py {title}`.
 
 When `retain_absent_episodes` is enabled, refreshing a feed keeps stored
 episodes that are missing from its latest RSS response. `max_episodes` remains

@@ -405,6 +405,35 @@ def test_display_execute_command_substitutes_metadata_after_splitting(display):
     )
 
 
+def test_display_execute_command_preserves_windows_paths(display):
+    castero.config.Config.data = {
+        "execute_command": (
+            '"C:\\Program Files\\Player\\player.exe" '
+            '--config C:\\Tools\\player.ini {file}'
+        )
+    }
+    myepisode = Episode(
+        Feed(url="feed", title="feed"),
+        title="episode",
+        enclosure=r"C:\Podcasts\episode.mp3",
+    )
+
+    with mock.patch("castero.display.os.name", "nt"), mock.patch(
+        "castero.display.subprocess.Popen"
+    ) as popen:
+        display.execute_command(myepisode)
+
+    popen.assert_called_once_with(
+        [
+            r"C:\Program Files\Player\player.exe",
+            "--config",
+            r"C:\Tools\player.ini",
+            r"C:\Podcasts\episode.mp3",
+        ],
+        shell=False,
+    )
+
+
 def test_display_execute_command_blank_template_does_not_launch(display):
     castero.config.Config.data = {"execute_command": "   "}
     myepisode = Episode(Feed(url="feed", title="feed"), title="episode")
@@ -449,7 +478,11 @@ def test_display_execute_command_rejects_windows_batch_with_episode_fields(
     )
 
 
-def test_display_execute_command_reports_process_start_failure(display):
+@pytest.mark.parametrize(
+    "error",
+    [OSError("executable not found"), ValueError("invalid arguments")],
+)
+def test_display_execute_command_reports_process_start_failure(display, error):
     castero.config.Config.data = {"execute_command": "missing-player {file}"}
     myepisode = Episode(
         Feed(url="feed", title="feed"),
@@ -459,11 +492,11 @@ def test_display_execute_command_reports_process_start_failure(display):
 
     with mock.patch(
         "castero.display.subprocess.Popen",
-        side_effect=OSError("executable not found"),
+        side_effect=error,
     ):
         display.execute_command(myepisode)
 
-    assert display._status == "Unable to execute command: executable not found"
+    assert display._status == "Unable to execute command: %s" % str(error)
 
 
 def test_display_color_numbers(display):

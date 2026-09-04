@@ -29,6 +29,69 @@ from castero.player import Player
 from castero.workers import WorkerManager
 
 
+def _split_command(template: str) -> List[str]:
+    """Split an execute_command template for the current platform."""
+    if os.name != "nt":
+        return shlex.split(template)
+
+    # Windows paths commonly contain backslashes, so POSIX shlex parsing is
+    # not suitable here. Follow the Windows C runtime quoting rules used by
+    # subprocess.list2cmdline when Popen turns an argument list back into a
+    # command line.
+    arguments = []
+    argument = []
+    argument_started = False
+    in_quotes = False
+    index = 0
+
+    while index < len(template):
+        character = template[index]
+
+        if character in " \t" and not in_quotes:
+            if argument_started:
+                arguments.append("".join(argument))
+                argument = []
+                argument_started = False
+            index += 1
+            continue
+
+        if character == "\\":
+            start = index
+            while index < len(template) and template[index] == "\\":
+                index += 1
+            backslashes = index - start
+
+            if index < len(template) and template[index] == '"':
+                argument.extend("\\" * (backslashes // 2))
+                if backslashes % 2:
+                    argument.append('"')
+                else:
+                    in_quotes = not in_quotes
+                argument_started = True
+                index += 1
+            else:
+                argument.extend("\\" * backslashes)
+                argument_started = True
+            continue
+
+        if character == '"':
+            in_quotes = not in_quotes
+            argument_started = True
+            index += 1
+            continue
+
+        argument.append(character)
+        argument_started = True
+        index += 1
+
+    if in_quotes:
+        raise ValueError("No closing quotation")
+    if argument_started:
+        arguments.append("".join(argument))
+
+    return arguments
+
+
 class DisplayError(Exception):
     """An ambiguous error while handling the display."""
 
@@ -638,7 +701,7 @@ class Display:
             return
 
         try:
-            command = shlex.split(template)
+            command = _split_command(template)
         except ValueError as error:
             self.change_status("Invalid execute_command: %s" % str(error))
             return
@@ -679,7 +742,7 @@ class Display:
 
         try:
             subprocess.Popen(command, shell=False)
-        except OSError as error:
+        except (OSError, ValueError) as error:
             self.change_status("Unable to execute command: %s" % str(error))
 
     def show_episode_url(self, episode: Episode) -> None:
