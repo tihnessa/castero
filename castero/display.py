@@ -1,9 +1,11 @@
 import curses
 import glob
 import importlib
-from typing import List
+import re
+import shlex
 import subprocess
 from os.path import dirname, basename, isfile
+from typing import List
 
 import castero
 from castero import helpers
@@ -630,16 +632,35 @@ class Display:
 
         :param episode episode to execute the command on
         """
-        command = (
-            Config["execute_command"]
-            .replace("{file}", episode.enclosure)
-            .replace("{title}", episode.title)
-            .replace("{description}", episode.description)
-            .replace("{link}", episode.link)
-            .replace("{pubdate}", episode.pubdate)
-            .replace("{copyright}", episode.copyright)
+        template = Config["execute_command"]
+        if not template.strip():
+            return
+
+        try:
+            command = shlex.split(template)
+        except ValueError as error:
+            self.change_status("Invalid execute_command: %s" % str(error))
+            return
+
+        if not command:
+            return
+
+        substitutions = {
+            "{file}": episode.enclosure,
+            "{title}": episode.title,
+            "{description}": episode.description,
+            "{link}": episode.link,
+            "{pubdate}": episode.pubdate,
+            "{copyright}": episode.copyright,
+        }
+        placeholder = re.compile(
+            r"\{(?:file|title|description|link|pubdate|copyright)\}"
         )
-        subprocess.Popen(command, shell=True)
+        command = [
+            placeholder.sub(lambda match: substitutions[match.group(0)], argument)
+            for argument in command
+        ]
+        subprocess.Popen(command, shell=False)
 
     def show_episode_url(self, episode: Episode) -> None:
         """Show episode URL in status line.
