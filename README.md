@@ -83,6 +83,7 @@ Commands
     =/-         - increase/decrease volume
     ]/[         - increase/decrease playback speed
     u           - show episode URL
+    e           - execute the configured external command
     1-5         - change between client layouts
 ```
 
@@ -147,6 +148,20 @@ created after the client is run for the first time.
 
 Please see the [default castero.conf](https://github.com/xgi/castero/blob/master/castero/templates/castero.conf)
 for a list of available settings.
+
+The `execute_command` setting is an argument template for launching an external
+program. Shell-style quotes may group configured arguments, and episode tokens
+such as `{file}` and `{title}` are substituted only after those arguments are
+split. Episode metadata therefore remains within its intended argument even
+when it contains spaces or shell metacharacters. castero does not invoke a
+shell, so pipes, redirects, environment-variable expansion, command
+substitution, and other shell syntax are not interpreted. Existing shell-based
+templates should be moved into a separate script, with `execute_command` set to
+that script and its arguments. On Windows, use double quotes to group arguments;
+ordinary backslashes in paths are preserved. Windows `.bat` and `.cmd` files
+cannot safely receive episode tokens because the operating system may run them
+through `cmd.exe`; invoke a script through a non-shell interpreter instead,
+such as `python hook.py {title}`.
 
 When `retain_absent_episodes` is enabled, refreshing a feed keeps stored
 episodes that are missing from its latest RSS response. `max_episodes` remains

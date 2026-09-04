@@ -346,7 +346,7 @@ def test_display_terminate_joins_database_workers_before_close(display):
     assert database_closed.is_set()
 
 
-def test_display_execute_command(display):
+def test_display_execute_command_parses_quoted_arguments(display):
     myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")
     myepisode = Episode(
         myfeed,
@@ -357,12 +357,146 @@ def test_display_execute_command(display):
         copyright="episode copyright",
         enclosure="episode file",
     )
-    castero.config.Config.data = {"execute_command": "player {file}"}
+    castero.config.Config.data = {
+        "execute_command": 'player --profile "configured profile" {file}'
+    }
 
     with mock.patch("castero.display.subprocess.Popen") as popen:
         display.execute_command(myepisode)
 
-    popen.assert_called_once_with("player episode file", shell=True)
+    popen.assert_called_once_with(
+        ["player", "--profile", "configured profile", "episode file"],
+        shell=False,
+    )
+
+
+def test_display_execute_command_substitutes_metadata_after_splitting(display):
+    myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")
+    myepisode = Episode(
+        myfeed,
+        title='title with spaces and "quotes"',
+        description="description; touch /tmp/castero-injection",
+        link="$(touch /tmp/castero-injection)",
+        pubdate="date with spaces; echo unsafe",
+        copyright="copyright 'quoted' value",
+        enclosure="episode file; touch /tmp/castero-injection",
+    )
+    castero.config.Config.data = {
+        "execute_command": (
+            "player {file} --title={title} '{description}' {link} "
+            '"{pubdate}" prefix-{copyright}'
+        )
+    }
+
+    with mock.patch("castero.display.subprocess.Popen") as popen:
+        display.execute_command(myepisode)
+
+    popen.assert_called_once_with(
+        [
+            "player",
+            "episode file; touch /tmp/castero-injection",
+            '--title=title with spaces and "quotes"',
+            "description; touch /tmp/castero-injection",
+            "$(touch /tmp/castero-injection)",
+            "date with spaces; echo unsafe",
+            "prefix-copyright 'quoted' value",
+        ],
+        shell=False,
+    )
+
+
+def test_display_execute_command_preserves_windows_paths(display):
+    castero.config.Config.data = {
+        "execute_command": (
+            '"C:\\Program Files\\Player\\player.exe" '
+            '--config C:\\Tools\\player.ini {file}'
+        )
+    }
+    myepisode = Episode(
+        Feed(url="feed", title="feed"),
+        title="episode",
+        enclosure=r"C:\Podcasts\episode.mp3",
+    )
+
+    with mock.patch("castero.display.os.name", "nt"), mock.patch(
+        "castero.display.subprocess.Popen"
+    ) as popen:
+        display.execute_command(myepisode)
+
+    popen.assert_called_once_with(
+        [
+            r"C:\Program Files\Player\player.exe",
+            "--config",
+            r"C:\Tools\player.ini",
+            r"C:\Podcasts\episode.mp3",
+        ],
+        shell=False,
+    )
+
+
+def test_display_execute_command_blank_template_does_not_launch(display):
+    castero.config.Config.data = {"execute_command": "   "}
+    myepisode = Episode(Feed(url="feed", title="feed"), title="episode")
+
+    with mock.patch("castero.display.subprocess.Popen") as popen:
+        display.execute_command(myepisode)
+
+    popen.assert_not_called()
+
+
+def test_display_execute_command_malformed_template_reports_error(display):
+    castero.config.Config.data = {"execute_command": 'player "{file}'}
+    myepisode = Episode(Feed(url="feed", title="feed"), title="episode")
+
+    with mock.patch("castero.display.subprocess.Popen") as popen:
+        display.execute_command(myepisode)
+
+    popen.assert_not_called()
+    assert display._status == "Invalid execute_command: No closing quotation"
+
+
+@pytest.mark.parametrize("extension", [".bat", ".CMD"])
+def test_display_execute_command_rejects_windows_batch_with_episode_fields(
+    display, extension
+):
+    castero.config.Config.data = {
+        "execute_command": "hook%s {title}" % extension
+    }
+    myepisode = Episode(
+        Feed(url="feed", title="feed"), title="episode & echo unsafe"
+    )
+
+    with mock.patch("castero.display.os.name", "nt"), mock.patch(
+        "castero.display.subprocess.Popen"
+    ) as popen:
+        display.execute_command(myepisode)
+
+    popen.assert_not_called()
+    assert display._status == (
+        "Invalid execute_command: Windows batch files cannot safely receive "
+        "episode fields"
+    )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [OSError("executable not found"), ValueError("invalid arguments")],
+)
+def test_display_execute_command_reports_process_start_failure(display, error):
+    castero.config.Config.data = {"execute_command": "missing-player {file}"}
+    myepisode = Episode(
+        Feed(url="feed", title="feed"),
+        title="episode",
+        enclosure="episode file",
+    )
+
+    with mock.patch(
+        "castero.display.subprocess.Popen",
+        side_effect=error,
+    ):
+        display.execute_command(myepisode)
+
+    assert display._status == "Unable to execute command: %s" % str(error)
 
 
 def test_display_color_numbers(display):
