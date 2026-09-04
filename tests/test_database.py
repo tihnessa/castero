@@ -4,6 +4,8 @@ import threading
 from shutil import copyfile
 from unittest import mock
 
+import pytest
+
 from castero.episode import Episode
 from castero.feed import Feed
 from castero.database import Database
@@ -12,6 +14,20 @@ from castero.queue import Queue
 from castero.player import Player
 
 my_dir = os.path.dirname(os.path.realpath(__file__))
+
+
+def feed_response(url, content, status_code=200, history=None):
+    response = mock.MagicMock()
+    response.request.url = url
+    response.content = content
+    response.status_code = status_code
+    response.history = [] if history is None else history
+    return response
+
+
+def valid_feed_content():
+    with open(my_dir + "/feeds/valid_basic.xml", "rb") as feed_file:
+        return feed_file.read()
 
 
 def test_database_migrates_episode_guid_column(tmp_path):
@@ -366,6 +382,165 @@ def test_database_reload(prevent_modification, display):
     mydatabase.reload(display)
     assert display.change_status.call_count == 2
     assert mydatabase.feeds()[0].title == real_title
+
+
+def test_database_reload_uses_async_response_without_downloading_again(
+    prevent_modification, monkeypatch
+):
+    mydatabase = Database()
+    old_feed = Feed(url="https://example.com/feed.xml", title="old title")
+    mydatabase.replace_feed(old_feed)
+    response = feed_response(old_feed.key, valid_feed_content())
+    display = mock.MagicMock()
+
+    monkeypatch.setattr(
+        "castero.database.grequests.imap",
+        lambda requests, size: iter([response]),
+    )
+    get = mock.MagicMock(side_effect=AssertionError("unexpected synchronous GET"))
+    monkeypatch.setattr("castero.feed.Net.Get", get)
+
+    mydatabase.reload(display, [old_feed])
+
+    get.assert_not_called()
+    assert mydatabase.feed(old_feed.key).title == "myfeed title"
+    display.change_status.assert_called_with("Successfully reloaded 1 feeds")
+    display.invalidate_menus.assert_called_once_with()
+
+
+@pytest.mark.parametrize("content", [b"not xml", b""])
+def test_database_reload_rejects_invalid_async_content_without_retrying(
+    prevent_modification, monkeypatch, content
+):
+    mydatabase = Database()
+    old_feed = Feed(url="https://example.com/feed.xml", title="old title")
+    response = feed_response(old_feed.key, content)
+    display = mock.MagicMock()
+    mydatabase._reload_feed_data = mock.MagicMock()
+
+    monkeypatch.setattr(
+        "castero.database.grequests.imap",
+        lambda requests, size: iter([response]),
+    )
+    get = mock.MagicMock(side_effect=AssertionError("unexpected synchronous GET"))
+    monkeypatch.setattr("castero.feed.Net.Get", get)
+
+    mydatabase.reload(display, [old_feed])
+
+    get.assert_not_called()
+    mydatabase._reload_feed_data.assert_not_called()
+    display.change_status.assert_called_with(
+        "Successfully reloaded 0 feeds (1 errors)"
+    )
+    display.invalidate_menus.assert_called_once_with()
+
+
+def test_database_reload_rejects_non_200_async_response(
+    prevent_modification, monkeypatch
+):
+    mydatabase = Database()
+    old_feed = Feed(url="https://example.com/feed.xml", title="old title")
+    response = feed_response(old_feed.key, valid_feed_content(), status_code=500)
+    display = mock.MagicMock()
+    mydatabase._reload_feed_data = mock.MagicMock()
+
+    monkeypatch.setattr(
+        "castero.database.grequests.imap",
+        lambda requests, size: iter([response]),
+    )
+    get = mock.MagicMock(side_effect=AssertionError("unexpected synchronous GET"))
+    monkeypatch.setattr("castero.feed.Net.Get", get)
+
+    mydatabase.reload(display, [old_feed])
+
+    get.assert_not_called()
+    mydatabase._reload_feed_data.assert_not_called()
+    display.change_status.assert_called_with(
+        "Successfully reloaded 0 feeds (1 errors)"
+    )
+    display.invalidate_menus.assert_called_once_with()
+
+
+def test_database_reload_counts_async_responses_that_are_not_yielded_as_errors(
+    prevent_modification, monkeypatch
+):
+    mydatabase = Database()
+    old_feed = Feed(url="https://example.com/feed.xml", title="old title")
+    display = mock.MagicMock()
+    mydatabase._reload_feed_data = mock.MagicMock()
+
+    monkeypatch.setattr(
+        "castero.database.grequests.imap",
+        lambda requests, size: iter([]),
+    )
+
+    mydatabase.reload(display, [old_feed])
+
+    mydatabase._reload_feed_data.assert_not_called()
+    display.change_status.assert_called_once_with(
+        "Successfully reloaded 0 feeds (1 errors)"
+    )
+    display.invalidate_menus.assert_called_once_with()
+
+
+def test_database_reload_reports_mixed_url_and_file_results(
+    prevent_modification, monkeypatch, tmp_path
+):
+    mydatabase = Database()
+    url_feed = Feed(url="https://example.com/feed.xml", title="url feed")
+    file_feed = Feed(file=my_dir + "/feeds/valid_basic.xml")
+    missing_feed = Feed(file=str(tmp_path / "missing.xml"), title="missing feed")
+    response = feed_response(url_feed.key, valid_feed_content())
+    display = mock.MagicMock()
+    mydatabase._reload_feed_data = mock.MagicMock()
+
+    monkeypatch.setattr(
+        "castero.database.grequests.imap",
+        lambda requests, size: iter([response]),
+    )
+    get = mock.MagicMock(side_effect=AssertionError("unexpected synchronous GET"))
+    monkeypatch.setattr("castero.feed.Net.Get", get)
+
+    mydatabase.reload(display, [url_feed, file_feed, missing_feed])
+
+    get.assert_not_called()
+    assert mydatabase._reload_feed_data.call_count == 2
+    display.change_status.assert_called_with(
+        "Successfully reloaded 2 feeds (1 errors)"
+    )
+    display.invalidate_menus.assert_called_once_with()
+
+
+def test_database_reload_matches_redirected_response_to_original_feed(
+    prevent_modification, monkeypatch
+):
+    mydatabase = Database()
+    old_feed = Feed(url="https://example.com/feed.xml", title="old title")
+    redirect = mock.MagicMock()
+    redirect.url = old_feed.key
+    response = feed_response(
+        "https://cdn.example.com/feed.xml",
+        valid_feed_content(),
+        history=[redirect],
+    )
+    display = mock.MagicMock()
+    mydatabase._reload_feed_data = mock.MagicMock()
+
+    monkeypatch.setattr(
+        "castero.database.grequests.imap",
+        lambda requests, size: iter([response]),
+    )
+    get = mock.MagicMock(side_effect=AssertionError("unexpected synchronous GET"))
+    monkeypatch.setattr("castero.feed.Net.Get", get)
+
+    mydatabase.reload(display, [old_feed])
+
+    get.assert_not_called()
+    reloaded_old_feed, new_feed = mydatabase._reload_feed_data.call_args.args
+    assert reloaded_old_feed is old_feed
+    assert new_feed.key == old_feed.key
+    display.change_status.assert_called_with("Successfully reloaded 1 feeds")
+    display.invalidate_menus.assert_called_once_with()
 
 
 def test_database_reload_skips_results_after_cancellation(

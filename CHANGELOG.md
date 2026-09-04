@@ -29,6 +29,8 @@ handling for existing downloads without a checksum.
 after successful completion.
 
 **Fixed**
+* Feed refreshes now parse asynchronous HTTP responses directly instead of
+downloading each feed twice, and report accurate success and failure totals.
 * Played/unplayed episode changes are now persisted when castero exits before
 the next periodic interface update.
 * Background feed reloads, episode menu loads, and downloads now use an owned

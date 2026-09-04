@@ -1,4 +1,5 @@
 import os
+from unittest import mock
 
 import pytest
 
@@ -32,6 +33,26 @@ def test_feed_validation_valid_mixed_enclosure():
     assert isinstance(myfeed, feed.Feed)
     assert myfeed.validated
     assert len(myfeed.parse_episodes()) == 2
+
+
+def test_feed_parses_pre_retrieved_content_without_downloading():
+    with open(my_dir + "/feeds/valid_basic.xml", "rb") as feed_file:
+        content = feed_file.read()
+
+    with mock.patch("castero.feed.Net.Get") as get:
+        myfeed = feed.Feed(url="https://example.com/feed.xml", text=content)
+
+    get.assert_not_called()
+    assert myfeed.title == "myfeed title"
+    assert len(myfeed.parse_episodes()) == 3
+
+
+def test_feed_rejects_empty_pre_retrieved_content_without_downloading():
+    with mock.patch("castero.feed.Net.Get") as get:
+        with pytest.raises(feed.FeedParseError):
+            feed.Feed(url="https://example.com/feed.xml", text=b"")
+
+    get.assert_not_called()
 
 
 def test_feed_validations_is_rss():

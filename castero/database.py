@@ -717,16 +717,16 @@ class Database:
             old_feed = None
             response_url = response.request.url
             if response_url in url_pairs:
-                old_feed = url_pairs[response.request.url]
+                old_feed = url_pairs[response_url]
             elif hasattr(response, "history") and len(response.history) > 0:
                 response_url = response.history[0].url
-                old_feed = url_pairs[response_url]
-            else:
+                old_feed = url_pairs.get(response_url)
+            if old_feed is None or response.status_code != 200:
                 errors += 1
                 continue
 
             try:
-                new_feed = Feed(url=response_url, response=response)
+                new_feed = Feed(url=response_url, text=response.content)
                 self._reload_feed_data(old_feed, new_feed)
                 completed_feeds += 1
             except FeedError:
@@ -750,7 +750,11 @@ class Database:
                 errors += 1
 
         if display is not None and not (cancel_event is not None and cancel_event.is_set()):
-            display.change_status("Successfully reloaded %d feeds" % total_feeds)
+            failed_feeds = total_feeds - completed_feeds
+            error_str = " (%d errors)" % failed_feeds if failed_feeds > 0 else ""
+            display.change_status(
+                "Successfully reloaded %d feeds%s" % (completed_feeds, error_str)
+            )
             display.invalidate_menus()
 
     @synchronized
