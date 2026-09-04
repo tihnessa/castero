@@ -18,7 +18,13 @@ def test_feed_validation_complete():
     myfeed = feed.Feed(file=my_dir + "/feeds/valid_complete.xml")
     assert isinstance(myfeed, feed.Feed)
     assert myfeed.validated
-    assert len(myfeed.parse_episodes()) == 3
+    episodes = myfeed.parse_episodes()
+    assert len(episodes) == 3
+    assert [episode.guid for episode in episodes] == [
+        "https://example.com/episodes/1",
+        "episode-2",
+        None,
+    ]
 
 
 def test_feed_validation_valid_mixed_enclosure():

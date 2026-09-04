@@ -10,16 +10,19 @@
             <title>myfeed item1 title</title>
             <description>myfeed item1 description</description>
             <link>myfeed item1 link</link>
+            <guid> https://example.com/episodes/1 </guid>
             <pubDate>myfeed item1 pubdate</pubDate>
             <copyright>myfeed item1 copyright</copyright>
             <enclosure url="http://example.com/myfeed_item1_title.mp3"/>
         </item>
         <item>
             <title>myfeed item2 title</title>
+            <guid isPermaLink="false">episode-2</guid>
             <enclosure url="http://example.com/myfeed_item2_title.mp3"/>
         </item>
         <item>
             <description>myfeed item3 description</description>
+            <guid>   </guid>
             <enclosure url="http://example.com/myfeed_item3_title.mp3"/>
         </item>
     </channel>

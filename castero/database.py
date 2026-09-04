@@ -32,13 +32,13 @@ class Database:
     OLD_PATH = os.path.join(DataFile.DATA_DIR, "feeds")
     MIGRATIONS_DIR = os.path.join(DataFile.PACKAGE, "templates/migrations")
 
-    SQL_EPISODES_BY_FEED_WITH_PROGRESS = "select episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time, download.path, download.sha256 from episode left join progress on episode.id=progress.ep_id left join download on episode.id=download.ep_id where feed_key=? order by episode.id"
-    SQL_EPISODES_WITH_PROGRESS = "select episode.feed_key, episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time, download.path, download.sha256 from episode left join progress on episode.id=progress.ep_id left join download on episode.id=download.ep_id order by episode.id"
-    SQL_EPISODES_BY_ID = "select episode.feed_key, episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time, download.path, download.sha256 from episode left join progress on episode.id=progress.ep_id left join download on episode.id=download.ep_id where episode.id=?"
-    SQL_UNPLAYED_EPISODES_BY_FEED = "select episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time, download.path, download.sha256 from episode left join progress on episode.id=progress.ep_id left join download on episode.id=download.ep_id where feed_key=? and played=0 order by episode.id"
-    SQL_EPISODE_INSERT = "insert into episode (id, title, feed_key, description, link, pubdate, copyright, enclosure, played)\nvalues (?,?,?,?,?,?,?,?,?)"
-    SQL_EPISODE_INSERT_NOID = "insert into episode (title, feed_key, description, link, pubdate, copyright, enclosure, played)\nvalues (?,?,?,?,?,?,?,?)"
-    SQL_EPISODE_UPDATE = "update episode set title=?, feed_key=?, description=?, link=?, pubdate=?, copyright=?, enclosure=?, played=? where id=?"
+    SQL_EPISODES_BY_FEED_WITH_PROGRESS = "select episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time, download.path, download.sha256, episode.guid from episode left join progress on episode.id=progress.ep_id left join download on episode.id=download.ep_id where feed_key=? order by episode.id"
+    SQL_EPISODES_WITH_PROGRESS = "select episode.feed_key, episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time, download.path, download.sha256, episode.guid from episode left join progress on episode.id=progress.ep_id left join download on episode.id=download.ep_id order by episode.id"
+    SQL_EPISODES_BY_ID = "select episode.feed_key, episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time, download.path, download.sha256, episode.guid from episode left join progress on episode.id=progress.ep_id left join download on episode.id=download.ep_id where episode.id=?"
+    SQL_UNPLAYED_EPISODES_BY_FEED = "select episode.id, episode.title, episode.description, episode.link, episode.pubdate, episode.copyright, episode.enclosure, episode.played, progress.time, download.path, download.sha256, episode.guid from episode left join progress on episode.id=progress.ep_id left join download on episode.id=download.ep_id where feed_key=? and played=0 order by episode.id"
+    SQL_EPISODE_INSERT = "insert into episode (id, title, feed_key, description, link, pubdate, copyright, enclosure, played, guid)\nvalues (?,?,?,?,?,?,?,?,?,?)"
+    SQL_EPISODE_INSERT_NOID = "insert into episode (title, feed_key, description, link, pubdate, copyright, enclosure, played, guid)\nvalues (?,?,?,?,?,?,?,?,?)"
+    SQL_EPISODE_UPDATE = "update episode set title=?, feed_key=?, description=?, link=?, pubdate=?, copyright=?, enclosure=?, played=?, guid=? where id=?"
     SQL_FEEDS_ALL = (
         "select key, title, description, link, last_build_date, copyright from feed order by lower(title)"
     )
@@ -177,6 +177,7 @@ class Database:
                         episode_dict["copyright"],
                         episode_dict["enclosure"],
                         False,
+                        None,
                     ),
                 )
 
@@ -252,6 +253,7 @@ class Database:
                     episode.copyright,
                     episode.enclosure,
                     episode.played,
+                    episode.guid,
                 ),
             )
             episode.ep_id = cursor.lastrowid
@@ -267,6 +269,7 @@ class Database:
                     episode.copyright,
                     episode.enclosure,
                     episode.played,
+                    episode.guid,
                     episode.ep_id,
                 ),
             )
@@ -283,6 +286,7 @@ class Database:
                         episode.copyright,
                         episode.enclosure,
                         episode.played,
+                        episode.guid,
                     ),
                 )
         self._conn.commit()
@@ -321,6 +325,7 @@ class Database:
                         episode.copyright,
                         episode.enclosure,
                         episode.played,
+                        episode.guid,
                     )
                     for episode in episodes_without_id
                 ),
@@ -338,6 +343,7 @@ class Database:
                         episode.copyright,
                         episode.enclosure,
                         episode.played,
+                        episode.guid,
                         episode.ep_id,
                     ),
                 )
@@ -354,6 +360,7 @@ class Database:
                             episode.copyright,
                             episode.enclosure,
                             episode.played,
+                            episode.guid,
                         ),
                     )
         self._conn.commit()
@@ -465,6 +472,7 @@ class Database:
                     progress=row[9],
                     download_path=row[10],
                     download_checksum=row[11],
+                    guid=row[12],
                 )
                 for row in rows
             ]
@@ -504,6 +512,7 @@ class Database:
                 progress=row[8],
                 download_path=row[9],
                 download_checksum=row[10],
+                guid=row[11],
             )
             for row in episode_rows
         ]
@@ -561,6 +570,7 @@ class Database:
                 progress=result[9],
                 download_path=result[10],
                 download_checksum=result[11],
+                guid=result[12],
             )
 
     def queue(self) -> List[Episode]:
@@ -603,6 +613,7 @@ class Database:
                     progress=result[9],
                     download_path=result[10],
                     download_checksum=result[11],
+                    guid=result[12],
                 )
 
         # queue may contain repeated ep_id's, so we need to go back to the
@@ -621,10 +632,10 @@ class Database:
         Therefore, Episode.replace_from() _must_ be updated if any new user
         metadata fields are added.
 
-        To determine which episodes are the same, we first compare enclosure
-        URLs. As a compatibility fallback for feeds that change those URLs, we
-        compare string representations (usually episode titles) when exactly
-        one stored and one refreshed episode have the same representation.
+        To determine which episodes are the same, we first compare RSS GUIDs.
+        Enclosure URLs and other metadata provide compatibility fallbacks for
+        feeds without usable GUIDs, but conflicting non-empty GUIDs are never
+        treated as the same episode.
 
         This method adheres to the max_episodes config parameter to limit the
         number of episodes saved per feed. If retain_absent_episodes is enabled,
@@ -735,7 +746,15 @@ class Database:
             if old_episode.progress != 0:
                 episode_progresses[new_episode.ep_id] = new_episode.progress
 
-        def match_unique(identity):
+        def guids_compatible(old_episode, new_episode):
+            """Reject fallback matches contradicted by two different GUIDs."""
+            return (
+                old_episode.guid is None
+                or new_episode.guid is None
+                or old_episode.guid == new_episode.guid
+            )
+
+        def match_unique(identity, compatible=None):
             """Match identities that occur once on each side of the refresh."""
             old_by_identity = {}
             new_by_identity = {}
@@ -756,30 +775,34 @@ class Database:
                     if (
                         old_episode in unmatched_old_episodes
                         and new_episode in unmatched_new_episodes
+                        and (compatible is None or compatible(old_episode, new_episode))
                     ):
                         copy_user_metadata(new_episode, old_episode)
 
-        # Enclosures are required for parsed episodes and usually distinguish
-        # episodes even when a feed reuses the same title. Match globally
-        # unique enclosures first. For reused enclosures, require another
-        # identifying field that is also globally unique within that enclosure
-        # group. Computing uniqueness before consuming any candidates keeps the
-        # result independent of RSS order.
-        match_unique(lambda episode: episode.enclosure)
-        match_unique(lambda episode: (episode.enclosure, str(episode)))
+        # RSS GUIDs are opaque identifiers intended to remain stable when other
+        # item metadata changes. Match globally unique GUIDs first. Enclosures
+        # and legacy metadata remain compatibility fallbacks for feeds without
+        # usable GUIDs, but never override two conflicting non-empty GUIDs.
+        match_unique(lambda episode: episode.guid)
+        match_unique(lambda episode: episode.enclosure, guids_compatible)
+        match_unique(
+            lambda episode: (episode.enclosure, str(episode)), guids_compatible
+        )
         match_unique(
             lambda episode: (
                 (episode.enclosure, episode.link)
                 if episode._link is not None
                 else None
-            )
+            ),
+            guids_compatible,
         )
         match_unique(
             lambda episode: (
                 (episode.enclosure, episode.pubdate)
                 if episode._pubdate is not None
                 else None
-            )
+            ),
+            guids_compatible,
         )
 
         # Entries with identical feed metadata cannot be distinguished by any
@@ -796,6 +819,7 @@ class Database:
                 episode.pubdate,
                 episode.copyright,
                 episode.enclosure,
+                episode.guid,
             )
             old_by_metadata.setdefault(metadata, []).append(episode)
         for episode in unmatched_new_episodes:
@@ -806,6 +830,7 @@ class Database:
                 episode.pubdate,
                 episode.copyright,
                 episode.enclosure,
+                episode.guid,
             )
             new_by_metadata.setdefault(metadata, []).append(episode)
         for metadata, matching_olds in old_by_metadata.items():
@@ -817,7 +842,7 @@ class Database:
         # across the complete feed on both sides. Checking only the remaining
         # candidates could make a duplicated title appear unique after an
         # enclosure match consumed one occurrence.
-        match_unique(lambda episode: str(episode))
+        match_unique(lambda episode: str(episode), guids_compatible)
 
         retained_absent_episodes = []
         if helpers.is_true(Config["retain_absent_episodes"]):
