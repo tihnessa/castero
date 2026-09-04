@@ -50,7 +50,12 @@ class DownloadedPerspective(Perspective):
         """Create the menus used in each window."""
         assert all(window is not None for window in [self._downloaded_window])
 
-        self._downloaded_menu = DownloadedMenu(self._downloaded_window, self._display.database, active=True)
+        self._downloaded_menu = DownloadedMenu(
+            self._downloaded_window,
+            self._display.database,
+            active=True,
+            workers=self._display.workers,
+        )
 
     def display(self) -> None:
         """Draws all windows and sub-features, including titles and borders."""

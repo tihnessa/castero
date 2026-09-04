@@ -1,5 +1,4 @@
 import curses
-import threading
 
 from castero.episode import Episode
 from castero.feed import Feed
@@ -10,10 +9,12 @@ from castero import helpers
 class ChronoMenu(Menu):
     """The menu for all episodes in chronological order."""
 
-    def __init__(self, window, source, child=None, active=False) -> None:
+    def __init__(self, window, source, child=None, active=False, workers=None) -> None:
         super().__init__(window, source, child=child, active=active)
 
         self._episodes = []
+        self._workers = workers
+        self._request_generation = 0
 
     def __len__(self) -> int:
         return len(self._filtered_episodes)
@@ -70,21 +71,42 @@ class ChronoMenu(Menu):
     def update_items(self, obj):
         """Called by the parent menu(the feeds menu) to update our items."""
         super().update_items(obj)
+        self._request_generation += 1
+        generation = self._request_generation
 
-        t = threading.Thread(target=self._request_source_episodes, name="episodes_all")
-        t.start()
+        if self._workers is None:
+            self._request_source_episodes()
+        else:
+            self._workers.submit(
+                self._load_source_episodes,
+                self._inverted,
+                self._workers.cancel_event,
+                on_result=lambda episodes: self._apply_source_episodes(
+                    generation, episodes
+                ),
+            )
 
         self._sanitize()
 
     def _request_source_episodes(self):
-        episodes = self._source.episodes()
+        episodes = self._load_source_episodes(self._inverted)
+        self._apply_source_episodes(self._request_generation, episodes)
 
-        self._episodes = sorted(
-            episodes, reverse=not self._inverted, key=lambda ep: helpers.datetime_from_rfc822(ep.pubdate)
+    def _load_source_episodes(self, inverted, cancel_event=None):
+        episodes = self._source.episodes()
+        if cancel_event is not None and cancel_event.is_set():
+            return None
+        return sorted(
+            episodes,
+            reverse=not inverted,
+            key=lambda ep: helpers.datetime_from_rfc822(ep.pubdate),
         )
 
-        self._sanitize()
-        self.display()
+    def _apply_source_episodes(self, generation, episodes):
+        if episodes is not None and generation == self._request_generation:
+            self._episodes = episodes
+            self._sanitize()
+            self.display()
 
     def update_child(self):
         """Not necessary for this menu - - does nothing."""

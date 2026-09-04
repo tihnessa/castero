@@ -1,6 +1,5 @@
 import os
 from pathlib import Path, PurePosixPath
-import threading
 
 from castero import constants
 from castero import helpers
@@ -186,13 +185,14 @@ class Episode:
         if display is not None:
             display.change_status("Starting episode download...")
 
-        t = threading.Thread(
-            target=DataFile.download_to_file,
-            args=[self._enclosure, output_path, str(self), download_queue, display, on_complete],
-            name="download_%s" % str(self),
+        DataFile.download_to_file(
+            self._enclosure,
+            output_path,
+            str(self),
+            download_queue,
+            display,
+            on_complete,
         )
-        t.start()
-        return t
 
     def delete(self, display=None):
         """Deletes the episode file from the file system.

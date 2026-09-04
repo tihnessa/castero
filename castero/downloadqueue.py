@@ -1,14 +1,17 @@
 import threading
 
 from castero.episode import Episode
+from castero.workers import WorkerManager
 
 
 class DownloadQueue:
     """A FIFO ordered queue for handling episode downloads."""
 
-    def __init__(self, display=None) -> None:
+    def __init__(self, display=None, workers=None) -> None:
         self._episodes = []
         self._display = display
+        self._owns_workers = workers is None
+        self._workers = workers or WorkerManager(max_workers=1)
         self._current = None
         self._current_cancelled = False
         self._worker = None
@@ -47,6 +50,8 @@ class DownloadQueue:
         assert isinstance(episode, Episode)
 
         with self._lock:
+            if self._stopping or self._workers.cancelled:
+                return
             if episode not in self._episodes:
                 self._episodes.append(episode)
 
@@ -66,13 +71,20 @@ class DownloadQueue:
     def start(self) -> None:
         """Start downloading the first episode in the queue."""
         with self._lock:
-            if self._stopping or self._current is not None or len(self._episodes) == 0:
+            if (
+                self._stopping
+                or self._workers.cancelled
+                or self._current is not None
+                or len(self._episodes) == 0
+            ):
                 return
             self._current = self._episodes[0]
             episode = self._current
-            worker = episode.download(self, self._display)
+            worker = self._workers.submit(episode.download, self, self._display)
             if self._current is episode:
                 self._worker = worker
+            if worker is None:
+                self._current = None
 
     def finalize(self, callback) -> bool:
         """Run a download's final promotion while cancellation is excluded."""
@@ -91,13 +103,19 @@ class DownloadQueue:
                 self._current_cancelled = True
             worker = self._worker
 
-        if worker is not None and worker is not threading.current_thread():
-            worker.join()
+        if worker is not None:
+            try:
+                worker.result()
+            except Exception:
+                pass
 
         with self._lock:
             if self._worker is worker:
                 self._worker = None
             self._current = None
+
+        if self._owns_workers:
+            self._workers.shutdown()
 
     def update(self) -> None:
         """Checks the status of the current download."""
@@ -124,4 +142,4 @@ class DownloadQueue:
     def cancelled(self) -> bool:
         """bool: whether the current download has been cancelled"""
         with self._lock:
-            return self._current_cancelled
+            return self._current_cancelled or self._workers.cancelled

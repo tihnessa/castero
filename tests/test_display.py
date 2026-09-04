@@ -1,5 +1,6 @@
 import curses
 import os
+import threading
 from unittest import mock
 
 import pytest
@@ -89,6 +90,36 @@ def test_display_update_status(display):
     display.change_status("test status")
     assert display._status == "test status"
     assert display._status_timer == display.STATUS_TIMEOUT
+
+
+def test_display_marshals_worker_status_to_ui_thread(display):
+    display.change_status("main-thread status")
+
+    future = display.workers.submit(display.change_status, "worker status")
+    future.result(timeout=1)
+
+    assert display._status == "main-thread status"
+    display.workers.drain()
+    assert display._status == "worker status"
+
+
+def test_display_prevents_overlapping_reload_workers(display):
+    feed = Feed(url="feed url", title="feed title")
+    started = threading.Event()
+    release = threading.Event()
+
+    def reload(_display, _feeds, cancel_event=None):
+        started.set()
+        release.wait(1)
+
+    display.database.reload = mock.MagicMock(side_effect=reload)
+    display.reload_selected_feed(feed)
+    assert started.wait(1)
+
+    display.reload_selected_feed(feed)
+
+    assert display.database.reload.call_count == 1
+    release.set()
 
 
 def test_display_update(display):
@@ -230,7 +261,9 @@ def test_display_delete_feed_cancels_active_download(display):
 
 def test_display_terminate_stops_downloads_before_closing_database(display):
     calls = mock.Mock()
+    display._workers.cancel = calls.cancel_workers
     display._download_queue.stop = calls.stop_downloads
+    display._workers.shutdown = calls.join_workers
     display._queue.stop = calls.stop_players
     display.database.replace_queue = calls.replace_queue
     display.database.close = calls.close_database
@@ -238,11 +271,39 @@ def test_display_terminate_stops_downloads_before_closing_database(display):
     display.terminate()
 
     assert calls.method_calls == [
+        mock.call.cancel_workers(),
         mock.call.stop_downloads(),
+        mock.call.join_workers(),
         mock.call.stop_players(),
         mock.call.replace_queue(display._queue),
         mock.call.close_database(),
     ]
+
+
+def test_display_terminate_joins_database_workers_before_close(display):
+    started = threading.Event()
+    observed_closed_state = []
+    database_closed = threading.Event()
+    real_close = display.database.close
+
+    def worker():
+        started.set()
+        display.workers.cancel_event.wait(1)
+        observed_closed_state.append(database_closed.is_set())
+        display.database.feeds()
+
+    def close_database():
+        database_closed.set()
+        real_close()
+
+    display.database.close = close_database
+    display.workers.submit(worker)
+    assert started.wait(1)
+
+    display.terminate()
+
+    assert observed_closed_state == [False]
+    assert database_closed.is_set()
 
 
 def test_display_execute_command(display):

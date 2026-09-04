@@ -1,5 +1,4 @@
 import curses
-import threading
 import os
 
 from castero.config import Config
@@ -12,10 +11,12 @@ from castero.menu import Menu
 class DownloadedMenu(Menu):
     """The menu for episodes in a feed."""
 
-    def __init__(self, window, source, child=None, active=False) -> None:
+    def __init__(self, window, source, child=None, active=False, workers=None) -> None:
         super().__init__(window, source, child=child, active=active)
 
         self._episodes = []
+        self._workers = workers
+        self._request_generation = 0
 
     def __len__(self) -> int:
         return len(self._filtered_episodes)
@@ -66,29 +67,51 @@ class DownloadedMenu(Menu):
     def update_items(self, obj):
         """Called by the parent menu (if we have one) to update our items."""
         super().update_items(obj)
+        self._request_generation += 1
+        generation = self._request_generation
 
-        t = threading.Thread(target=self._find_downloaded_episodes, name="find_downloaded_episodes")
-        t.start()
+        if self._workers is None:
+            self._find_downloaded_episodes()
+        else:
+            self._workers.submit(
+                self._load_downloaded_episodes,
+                self._inverted,
+                self._workers.cancel_event,
+                on_result=lambda episodes: self._apply_downloaded_episodes(
+                    generation, episodes
+                ),
+            )
 
         self._sanitize()
 
     def _find_downloaded_episodes(self):
+        episodes = self._load_downloaded_episodes(self._inverted)
+        self._apply_downloaded_episodes(self._request_generation, episodes)
+
+    def _load_downloaded_episodes(self, inverted, cancel_event=None):
         configured_path = "" if Config is None else Config["custom_download_dir"]
         path = download_path(configured_path, default=DataFile.DEFAULT_DOWNLOADED_DIR)
 
-        self._episodes = []
+        episodes = []
         for (dirpath, dirnames, filenames) in os.walk(path):
+            if cancel_event is not None and cancel_event.is_set():
+                return None
             for filename in filenames:
                 ep_id = filename.split("-")[0]
                 if ep_id.isdigit():
                     episode = self._source.episode(int(ep_id))
                     if episode is not None:
-                        self._episodes.append(episode)
+                        episodes.append(episode)
 
-        if self._inverted:
-            self._episodes.reverse()
-        self._sanitize()
-        self.display()
+        if inverted:
+            episodes.reverse()
+        return episodes
+
+    def _apply_downloaded_episodes(self, generation, episodes):
+        if episodes is not None and generation == self._request_generation:
+            self._episodes = episodes
+            self._sanitize()
+            self.display()
 
     def update_child(self):
         """Not necessary for this menu -- does nothing."""

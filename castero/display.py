@@ -1,7 +1,6 @@
 import curses
 import glob
 import importlib
-import threading
 from typing import List
 import subprocess
 from os.path import dirname, basename, isfile
@@ -24,6 +23,7 @@ from castero.menu import Menu
 from castero.perspective import Perspective
 from castero.queue import Queue
 from castero.player import Player
+from castero.workers import WorkerManager
 
 
 class DisplayError(Exception):
@@ -77,7 +77,6 @@ class Display:
         self._header_window = None
         self._footer_window = None
         self._queue = Queue(self)
-        self._download_queue = DownloadQueue(self)
         self._status = ""
         self._header_str = ""
         self._footer_str = ""
@@ -85,6 +84,9 @@ class Display:
         self._update_timer = self.UPDATE_TIMEOUT
         self._menus_valid = True
         self._modified_episodes = []
+        self._terminated = False
+        self._workers = WorkerManager(error_handler=self._worker_failed)
+        self._download_queue = DownloadQueue(self, workers=self._workers)
 
         # basic preliminary operations
         self._stdscr.timeout(self.INPUT_TIMEOUT)
@@ -296,6 +298,8 @@ class Display:
 
     def display(self) -> None:
         """Draws all windows and sub-features, including titles and borders."""
+        self._workers.drain()
+
         # check if the screen size has changed
         self.update_parent_dimensions()
 
@@ -504,28 +508,45 @@ class Display:
                 self.menus_valid = False
                 self.change_status("Feed successfully deleted")
 
-    def reload_feeds(self) -> None:
+    def reload_feeds(self, confirm=True) -> None:
         """Reloads the users' feeds.
 
         If the total number of feeds is >= the reload_feeds_threshold config
         option, this method will first ask for y/n confirmation.
 
-        This method starts the reloading in a new un-managed thread.
+        The reload is submitted to the display's managed worker pool.
         """
-        should_reload = True
-        if len(self.database.feeds()) >= int(Config["reload_feeds_threshold"]):
+        feeds = self.database.feeds()
+        should_reload = not self._terminated
+        if confirm and len(feeds) >= int(Config["reload_feeds_threshold"]):
             should_reload = self._get_y_n("Are you sure you want to reload all of your feeds?" " (y/n): ")
         if should_reload:
-            t = threading.Thread(target=self.database.reload, args=[self])
-            t.start()
+            future = self._workers.submit(
+                self.database.reload,
+                self,
+                feeds,
+                self._workers.cancel_event,
+                key="reload",
+            )
+            if future is None and not self._terminated:
+                self.change_status("A feed reload is already running")
 
     def reload_selected_feed(self, feed: Feed) -> None:
         """Reloads the selected feed.
 
-        This method starts the reloading in a new un-managed thread.
+        The reload is submitted to the display's managed worker pool.
         """
-        t = threading.Thread(target=self.database.reload, args=[self, [feed]])
-        t.start()
+        if self._terminated:
+            return
+        future = self._workers.submit(
+            self.database.reload,
+            self,
+            [feed],
+            self._workers.cancel_event,
+            key="reload",
+        )
+        if future is None:
+            self.change_status("A feed reload is already running")
 
     def save_episodes(self, feed=None, episode=None) -> None:
         """Save a feed or episode.
@@ -652,12 +673,42 @@ class Display:
         a "wrapping up" method for any actions which need to be performed
         before the object is destroyed.
         """
+        if self._terminated:
+            return
+        self._terminated = True
+
+        self._workers.cancel()
         self._download_queue.stop()
+        self._workers.shutdown()
         self._queue.stop()
 
+        self._flush_modified_episodes()
         self.database.replace_queue(self._queue)
         self.database.close()
 
+    def _worker_failed(self, error) -> None:
+        """Report an unexpected worker failure from the UI thread."""
+        self.change_status("Background worker failed: %s" % error)
+
+    def _flush_modified_episodes(self) -> None:
+        """Persist pending episode changes on the UI thread."""
+        if len(self._modified_episodes) == 0:
+            return
+        for episode in self._modified_episodes:
+            self.database.replace_episode(episode._feed, episode)
+            if episode.progress is None:
+                self.database.delete_progress(episode)
+            else:
+                self.database.replace_progress(episode, episode.progress)
+        self._modified_episodes = []
+
+    def invalidate_menus(self) -> None:
+        """Request a menu refresh without mutating UI state from a worker."""
+        if not self._workers.on_owner_thread:
+            self._workers.call_soon(self.invalidate_menus)
+            return
+        if not self._terminated:
+            self._menus_valid = False
 
     def update_parent_dimensions(self) -> None:
         """Update _parent_x and _parent_y to the size of the console."""
@@ -690,6 +741,12 @@ class Display:
         :param status the status message to display
         """
         assert isinstance(status, str)
+
+        if not self._workers.on_owner_thread:
+            self._workers.call_soon(self.change_status, status)
+            return
+        if self._terminated:
+            return
 
         self._status = status
         self._status_timer = self.STATUS_TIMEOUT
@@ -753,15 +810,8 @@ class Display:
 
         # write any episode modifications to the database
         if len(self._modified_episodes) > 0:
-            for episode in self._modified_episodes:
-                self.database.replace_episode(episode._feed, episode)
-                if episode.progress is None:
-                    self.database.delete_progress(episode, episode.progress)
-                else:
-                    self.database.replace_progress(episode, episode.progress)
-
+            self._flush_modified_episodes()
             self.menus_valid = False
-            self._modified_episodes = []
 
     @property
     def parent_x(self) -> int:
@@ -789,13 +839,22 @@ class Display:
         return self._queue
 
     @property
+    def workers(self) -> WorkerManager:
+        """WorkerManager: owner of background tasks and UI callbacks."""
+        return self._workers
+
+    @property
     def menus_valid(self) -> bool:
         """bool: whether the menu contents are valid (!need_to_be_updated)"""
         return self._menus_valid
 
     @menus_valid.setter
     def menus_valid(self, menus_valid) -> None:
-        self._menus_valid = menus_valid
+        if not self._workers.on_owner_thread:
+            self._workers.call_soon(setattr, self, "menus_valid", menus_valid)
+            return
+        if not self._terminated:
+            self._menus_valid = menus_valid
 
     @property
     def modified_episodes(self) -> List[Episode]:

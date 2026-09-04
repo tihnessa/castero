@@ -86,6 +86,7 @@ class DataFile:
         download_completed = False
         temporary_file = str(file) + ".part"
         digest = hashlib.sha256()
+        response = None
 
         try:
             if getattr(download_queue, "cancelled", False) is True:
@@ -131,12 +132,14 @@ class DataFile:
             if download_completed:
                 if display is not None:
                     display.change_status("Episode successfully downloaded.")
-                    display.menus_valid = False
+                    display.invalidate_menus()
         except requests.exceptions.RequestException as e:
             if display is not None:
                 display.change_status("RequestException: %s" % str(e))
         finally:
             try:
+                if response is not None:
+                    response.close()
                 cancelled = getattr(download_queue, "cancelled", False) is True
                 should_remove = cancelled or (download_started and not download_completed)
                 if should_remove and os.path.exists(temporary_file):

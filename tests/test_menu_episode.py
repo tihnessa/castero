@@ -1,8 +1,11 @@
+import threading
+import time
 from unittest import mock
 
 from castero.episode import Episode
 from castero.feed import Feed
 from castero.menus.episodemenu import EpisodeMenu
+from castero.workers import WorkerManager
 
 feed = mock.MagicMock(spec=Feed)
 episode1 = mock.MagicMock(spec=Episode)
@@ -118,3 +121,56 @@ def test_menu_episode_inverts_mixed_pubdate_order():
     mymenu._request_source_episodes(feed)
 
     assert mymenu._episodes == [unknown, offset, utc]
+
+
+def test_menu_episode_applies_worker_result_on_owner_thread():
+    workers = WorkerManager(max_workers=1)
+    owner_thread = threading.get_ident()
+    loaded = threading.Event()
+    callback_threads = []
+    local_source = mock.MagicMock()
+    local_source.episodes.return_value = [episode1]
+    mymenu = EpisodeMenu(window, local_source, workers=workers)
+    mymenu.display = lambda: (callback_threads.append(threading.get_ident()), loaded.set())
+
+    mymenu.update_items(feed)
+    deadline = time.monotonic() + 1
+    while not loaded.is_set() and time.monotonic() < deadline:
+        workers.drain()
+        time.sleep(0.001)
+
+    assert loaded.is_set()
+    assert callback_threads == [owner_thread]
+    workers.shutdown()
+
+
+def test_menu_episode_discards_stale_worker_result():
+    workers = WorkerManager(max_workers=2)
+    first_feed = mock.MagicMock(spec=Feed)
+    second_feed = mock.MagicMock(spec=Feed)
+    first_episode = mock.MagicMock(spec=Episode, pubdate=None)
+    second_episode = mock.MagicMock(spec=Episode, pubdate=None)
+    release_first = threading.Event()
+
+    def episodes(selected_feed):
+        if selected_feed is first_feed:
+            release_first.wait(1)
+            return [first_episode]
+        return [second_episode]
+
+    local_source = mock.MagicMock()
+    local_source.episodes.side_effect = episodes
+    mymenu = EpisodeMenu(window, local_source, workers=workers)
+    mymenu.display = mock.MagicMock()
+
+    mymenu.update_items(first_feed)
+    mymenu.update_items(second_feed)
+    release_first.set()
+
+    deadline = time.monotonic() + 1
+    while mymenu._episodes != [second_episode] and time.monotonic() < deadline:
+        workers.drain()
+        time.sleep(0.001)
+
+    assert mymenu._episodes == [second_episode]
+    workers.shutdown()

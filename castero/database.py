@@ -2,9 +2,11 @@ import json
 import os
 import sys
 import sqlite3
+import threading
 import grequests
 from typing import List
 from io import StringIO
+from functools import wraps
 
 from castero import helpers
 from castero.config import Config
@@ -13,6 +15,17 @@ from castero.episode import Episode
 from castero.feed import Feed, FeedError
 from castero.queue import Queue
 from castero.net import Net
+
+
+def synchronized(method):
+    """Serialize access to the shared SQLite connection."""
+
+    @wraps(method)
+    def locked(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return locked
 
 
 class Database:
@@ -64,6 +77,7 @@ class Database:
         If the database file does not exist but the old Feeds file does, we
         create the database using the old format.
         """
+        self._lock = threading.RLock()
         existed = os.path.exists(self.PATH)
         DataFile.ensure_path(self.PATH)
 
@@ -84,6 +98,7 @@ class Database:
         self._conn.execute("PRAGMA foreign_keys = ON")
         self.migrate()
 
+    @synchronized
     def close(self):
         """Close the database.
 
@@ -112,6 +127,7 @@ class Database:
                 with open(path, "rt") as f:
                     cursor.executescript(f.read())
 
+    @synchronized
     def migrate(self):
         """Apply SQL migrations.
 
@@ -119,6 +135,7 @@ class Database:
         """
         self.migrate_connection(self._conn)
 
+    @synchronized
     def _copy_database(self, from_connection, to_connection):
         """Copy database contents from one connection to another."""
         if sys.version_info.major == 3 and sys.version_info.minor >= 7:
@@ -138,6 +155,7 @@ class Database:
         to_connection.commit()
         to_connection.execute("PRAGMA foreign_keys = ON")
 
+    @synchronized
     def _create_from_old_feeds(self):
         """Create database from deprecated Feeds format.
 
@@ -183,6 +201,7 @@ class Database:
 
         self._conn.commit()
 
+    @synchronized
     def delete_feed(self, feed: Feed) -> None:
         """Delete a feed from the database.
 
@@ -194,6 +213,7 @@ class Database:
         cursor.execute(self.SQL_FEED_DELETE, (feed.key,))
         self._conn.commit()
 
+    @synchronized
     def replace_feed(self, feed: Feed) -> None:
         """Replace (or insert) a feed in the database.
 
@@ -227,6 +247,7 @@ class Database:
             )
         self._conn.commit()
 
+    @synchronized
     def replace_episode(self, feed: Feed, episode: Episode) -> None:
         """Replace (or insert) an episode in the database.
 
@@ -291,6 +312,7 @@ class Database:
                 )
         self._conn.commit()
 
+    @synchronized
     def replace_episodes(self, feed: Feed, episodes: List[Episode]) -> None:
         """Replace (or insert) a list of episodes in the database.
 
@@ -365,6 +387,7 @@ class Database:
                     )
         self._conn.commit()
 
+    @synchronized
     def _delete_episodes(self, episodes: List[Episode]) -> None:
         """Delete episodes and any user data attached to them."""
         cursor = self._conn.cursor()
@@ -373,12 +396,14 @@ class Database:
         )
         self._conn.commit()
 
+    @synchronized
     def delete_queue(self) -> None:
         """Clear the queue table."""
         cursor = self._conn.cursor()
         cursor.execute(self.SQL_QUEUE_DELETE)
         self._conn.commit()
 
+    @synchronized
     def replace_download(self, episode: Episode, path: str, checksum: str) -> None:
         """Store the relative path and SHA-256 digest for a completed download."""
         cursor = self._conn.cursor()
@@ -387,6 +412,7 @@ class Database:
         episode.download_checksum = checksum
         self._conn.commit()
 
+    @synchronized
     def delete_download(self, episode: Episode) -> None:
         """Remove the integrity metadata for an episode download."""
         cursor = self._conn.cursor()
@@ -395,6 +421,7 @@ class Database:
         episode.download_checksum = None
         self._conn.commit()
 
+    @synchronized
     def replace_queue(self, queue: Queue) -> None:
         """Replace the queue in the database.
 
@@ -414,6 +441,7 @@ class Database:
                 i += 1
         self._conn.commit()
 
+    @synchronized
     def feeds(self) -> List[Feed]:
         """Retrieve the list of Feeds.
 
@@ -440,6 +468,7 @@ class Database:
                 self.delete_feed(feed)
         return feeds
 
+    @synchronized
     def episodes(self, feed: Feed = None) -> List[Episode]:
         """Retrieve all episodes for a feed.
 
@@ -481,6 +510,7 @@ class Database:
             rows = cursor.fetchall()
             return self._create_feed_episode_list(feed, rows)
 
+    @synchronized
     def unplayed_episodes(self, feed: Feed) -> List[Episode]:
         """Retrieve all unplayed episodes for a feed.
 
@@ -517,6 +547,7 @@ class Database:
             for row in episode_rows
         ]
 
+    @synchronized
     def feed(self, key) -> Feed:
         """Retrieve a feed by key.
 
@@ -542,6 +573,7 @@ class Database:
                 episodes=[],
             )
 
+    @synchronized
     def episode(self, ep_id: int) -> Episode:
         """Retrieve an episode by ep_id.
 
@@ -573,6 +605,7 @@ class Database:
                 guid=result[12],
             )
 
+    @synchronized
     def queue(self) -> List[Episode]:
         """Retrieve all episodes in the queue.
 
@@ -620,7 +653,7 @@ class Database:
         # retrieved ep_ids to get complete list of desired episodes
         return [episodes_cache[ep_id] for ep_id in ep_ids]
 
-    def reload(self, display=None, feeds=None) -> None:
+    def reload(self, display=None, feeds=None, cancel_event=None) -> None:
         """Reload feeds in the database.
 
         To preserve user metadata for episodes (such as played/marked status),
@@ -648,6 +681,8 @@ class Database:
         """
         if feeds is None:
             feeds = self.feeds()
+        if cancel_event is not None and cancel_event.is_set():
+            return
         total_feeds = len(feeds)
         completed_feeds = 0
         errors = 0
@@ -661,6 +696,8 @@ class Database:
         # that we are given).
         # We also keep track of file-based feeds, which are handled afterwards.
         for feed in feeds:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             if feed.key.startswith("http"):
                 url_pairs[feed.key] = feed
                 reqs.append(Net.GGet(feed.key))
@@ -669,6 +706,8 @@ class Database:
 
         # handle each response as downloads complete asynchronously
         for response in grequests.imap(reqs, size=3):
+            if cancel_event is not None and cancel_event.is_set():
+                continue
             if display is not None:
                 error_str = "(%s errors)" % errors if errors > 0 else ""
                 display.change_status(
@@ -695,6 +734,8 @@ class Database:
 
         # handle each file-based feed
         for old_feed in file_feeds:
+            if cancel_event is not None and cancel_event.is_set():
+                break
             if display is not None:
                 error_str = "(%s errors)" % errors if errors > 0 else ""
                 display.change_status(
@@ -708,22 +749,25 @@ class Database:
             except FeedError:
                 errors += 1
 
-        if display is not None:
+        if display is not None and not (cancel_event is not None and cancel_event.is_set()):
             display.change_status("Successfully reloaded %d feeds" % total_feeds)
-            display.menus_valid = False
+            display.invalidate_menus()
 
+    @synchronized
     def replace_progress(self, episode: Episode, progress: int):
         cursor = self._conn.cursor()
         cursor.execute(self.SQL_EPISODE_PROGRESS_REPLACE, (episode.ep_id, progress))
         episode.progress = progress
         self._conn.commit()
 
+    @synchronized
     def delete_progress(self, episode: Episode):
         cursor = self._conn.cursor()
         cursor.execute(self.SQL_EPISODE_PROGRESS_DELETE, (episode.ep_id,))
         episode.progress = None
         self._conn.commit()
 
+    @synchronized
     def _reload_feed_data(self, old_feed: Feed, new_feed: Feed):
         """Helper method to update a feed and its episodes in the database.
 

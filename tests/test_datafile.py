@@ -1,5 +1,6 @@
 import hashlib
 from pathlib import Path
+import time
 from unittest import mock
 
 import requests
@@ -8,6 +9,13 @@ from castero.datafile import DataFile
 from castero.downloadqueue import DownloadQueue
 from castero.episode import Episode
 from castero.feed import Feed
+
+
+def wait_for(predicate, timeout=1):
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        time.sleep(0.001)
+    return predicate()
 
 
 def response_with_chunks(*chunks):
@@ -21,7 +29,6 @@ def test_datafile_download(get, tmp_path):
     response = response_with_chunks(b"some ", b"", b"audio")
     get.return_value = response
     display = mock.MagicMock()
-    display.menus_valid = True
     download_queue = mock.MagicMock()
     download_queue.length = 1
     output_path = tmp_path / "episode.mp3"
@@ -43,7 +50,8 @@ def test_datafile_download(get, tmp_path):
         output_path, hashlib.sha256(b"some audio").hexdigest()
     )
     display.change_status.assert_any_call("Episode successfully downloaded.")
-    assert display.menus_valid is False
+    display.invalidate_menus.assert_called_once_with()
+    response.close.assert_called_once_with()
     download_queue.next.assert_called_once_with()
 
 
@@ -66,6 +74,7 @@ def test_datafile_download_http_error(get, tmp_path):
 
     assert not output_path.exists()
     response.iter_content.assert_not_called()
+    response.close.assert_called_once_with()
     display.change_status.assert_called_once_with("RequestException: 404 Client Error")
     download_queue.next.assert_called_once_with()
 
@@ -99,6 +108,7 @@ def test_datafile_download_removes_partial_file(get, tmp_path):
     completed.assert_not_called()
     display.change_status.assert_called_with("RequestException: stream interrupted")
     assert mock.call("Episode successfully downloaded.") not in display.change_status.call_args_list
+    response.close.assert_called_once_with()
     download_queue.next.assert_called_once_with()
 
 
@@ -175,7 +185,10 @@ def test_datafile_cancelled_download_removes_partial_file(get, tmp_path):
     assert not output_path.parent.exists()
     completed.assert_not_called()
     assert download_queue.length == 1
+    assert wait_for(lambda: next_episode.download.call_count == 1)
     next_episode.download.assert_called_once_with(download_queue, None)
+    response.close.assert_called_once_with()
+    download_queue.stop()
 
 
 @mock.patch("castero.datafile.Net.Get")

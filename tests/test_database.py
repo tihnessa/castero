@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import threading
 from shutil import copyfile
 from unittest import mock
 
@@ -44,6 +45,25 @@ def test_database_migrates_episode_guid_column(tmp_path):
 def test_database_default(prevent_modification):
     mydatabase = Database()
     assert isinstance(mydatabase, Database)
+
+
+def test_database_serializes_connection_access(display):
+    started = threading.Event()
+    completed = threading.Event()
+
+    def read_feeds():
+        started.set()
+        display.database.feeds()
+        completed.set()
+
+    with display.database._lock:
+        thread = threading.Thread(target=read_feeds)
+        thread.start()
+        assert started.wait(1)
+        assert not completed.wait(0.05)
+
+    assert completed.wait(1)
+    thread.join()
 
 
 def test_database_close_replaces_existing_backup_on_windows(tmp_path, monkeypatch):
@@ -346,6 +366,31 @@ def test_database_reload(prevent_modification, display):
     mydatabase.reload(display)
     assert display.change_status.call_count == 2
     assert mydatabase.feeds()[0].title == real_title
+
+
+def test_database_reload_skips_results_after_cancellation(
+    prevent_modification, monkeypatch
+):
+    mydatabase = Database()
+    feed = Feed(url="https://example.com/feed.xml", title="feed")
+    response = mock.MagicMock()
+    response.request.url = feed.key
+    cancel_event = threading.Event()
+    display = mock.MagicMock()
+    mydatabase._reload_feed_data = mock.MagicMock()
+
+    def responses(_requests, size):
+        assert size == 3
+        cancel_event.set()
+        yield response
+
+    monkeypatch.setattr("castero.database.grequests.imap", responses)
+
+    mydatabase.reload(display, [feed], cancel_event)
+
+    mydatabase._reload_feed_data.assert_not_called()
+    display.change_status.assert_not_called()
+    display.invalidate_menus.assert_not_called()
 
 
 def test_database_reload_preserves_episode_progress(prevent_modification):
