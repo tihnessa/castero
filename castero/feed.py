@@ -77,7 +77,7 @@ class Feed:
         # assume that if we have been passed the title then we have also been
         # passed everything else and that the feed is valid
         if self._title is None:
-            if text:
+            if text is not None:
                 # the content of a document was already provided, but we need
                 # to ensure it is valid RSS
                 try:

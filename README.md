@@ -154,6 +154,11 @@ a hard per-feed limit: current RSS episodes take priority, and absent episodes
 fill any remaining capacity. Set `max_episodes` to `-1` to retain all absent
 episodes.
 
+URL-based feed refreshes download each feed once and parse the asynchronous
+response directly. After a non-cancelled refresh, the status line reports the
+number of feeds successfully reloaded and, when applicable, the number that
+failed, including requests that returned no response.
+
 User data includes downloaded episodes and a database containing feed
 information and the saved playback queue. The `custom_download_dir` setting
 accepts POSIX paths, Windows drive-letter paths such as `D:\\Podcasts`, UNC
