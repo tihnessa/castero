@@ -1,5 +1,4 @@
 import curses
-import threading
 
 from castero.episode import Episode
 from castero.feed import Feed
@@ -10,11 +9,13 @@ from castero import helpers
 class EpisodeMenu(Menu):
     """The menu for episodes in a feed."""
 
-    def __init__(self, window, source, child=None, active=False) -> None:
+    def __init__(self, window, source, child=None, active=False, workers=None) -> None:
         super().__init__(window, source, child=child, active=active)
 
         self._feed = None
         self._episodes = []
+        self._workers = workers
+        self._request_generation = 0
 
     def __len__(self) -> int:
         return len(self._filtered_episodes)
@@ -75,26 +76,44 @@ class EpisodeMenu(Menu):
         super().update_items(feed)
 
         self._feed = feed
+        self._request_generation += 1
+        generation = self._request_generation
 
         if feed is None:
             self._episodes = []
+        elif self._workers is None:
+            self._request_source_episodes(feed)
         else:
-            t = threading.Thread(
-                target=self._request_source_episodes, args=[feed], name="episodes_%s" % feed
+            self._workers.submit(
+                self._load_source_episodes,
+                feed,
+                self._inverted,
+                self._workers.cancel_event,
+                on_result=lambda episodes: self._apply_source_episodes(
+                    feed, generation, episodes
+                ),
             )
-            t.start()
 
         self._sanitize()
 
     def _request_source_episodes(self, feed):
-        episodes = self._source.episodes(feed)
+        episodes = self._load_source_episodes(feed, self._inverted)
+        self._apply_source_episodes(feed, self._request_generation, episodes)
 
-        # the above may have taken some time; ensure the user hasn't
-        # selected another feed
-        if self._feed == feed:
-            self._episodes = sorted(
-                episodes, reverse=not self._inverted, key=lambda ep: helpers.datetime_from_rfc822(ep.pubdate)
-            )
+    def _load_source_episodes(self, feed, inverted, cancel_event=None):
+        episodes = self._source.episodes(feed)
+        if cancel_event is not None and cancel_event.is_set():
+            return None
+        return sorted(
+            episodes,
+            reverse=not inverted,
+            key=lambda ep: helpers.datetime_from_rfc822(ep.pubdate),
+        )
+
+    def _apply_source_episodes(self, feed, generation, episodes):
+        # The load may have taken some time; ignore results for an old request.
+        if episodes is not None and self._feed == feed and generation == self._request_generation:
+            self._episodes = episodes
 
             self._sanitize()
             self.display()

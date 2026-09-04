@@ -29,6 +29,9 @@ handling for existing downloads without a checksum.
 after successful completion.
 
 **Fixed**
+* Background feed reloads, episode menu loads, and downloads now use an owned
+worker pool that is canceled and joined before the database closes; terminal
+updates are applied only from the main UI thread.
 * Feed refreshes now use RSS GUIDs as the primary episode identity, preserving
 progress, queue entries, and download metadata when titles are duplicated or
 enclosure URLs change.

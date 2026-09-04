@@ -55,7 +55,11 @@ class SimplePerspective(Perspective):
         """Create the menus used in each window, if necessary."""
         assert all(window is not None for window in [self._feed_window, self._episode_window])
 
-        self._episode_menu = EpisodeMenu(self._episode_window, self._display.database)
+        self._episode_menu = EpisodeMenu(
+            self._episode_window,
+            self._display.database,
+            workers=self._display.workers,
+        )
         self._feed_menu = FeedMenu(
             self._feed_window, self._display.database, child=self._episode_menu, active=True
         )

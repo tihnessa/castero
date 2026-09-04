@@ -4,7 +4,6 @@ import os
 import re
 import sys
 import tempfile
-import threading
 
 from gevent import monkey
 
@@ -79,8 +78,7 @@ def _display_loop(stdscr, database) -> None:
         display.update_parent_dimensions()
 
         if helpers.is_true(Config["reload_on_start"]):
-            reload_thread = threading.Thread(target=database.reload, args=[display])
-            reload_thread.start()
+            display.reload_feeds(confirm=False)
 
         display.display_all()
         display._menus_valid = False

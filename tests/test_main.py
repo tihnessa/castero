@@ -60,6 +60,20 @@ def test_display_loop_terminates_after_an_error():
     display.terminate.assert_called_once_with()
 
 
+def test_display_loop_routes_startup_reload_through_display():
+    display = mock.MagicMock()
+    display.getch.return_value = ord("q")
+    display.handle_input.return_value = False
+
+    with mock.patch("castero.display.Display", return_value=display), mock.patch.dict(
+        cli.Config.data, {"reload_on_start": "True"}
+    ):
+        cli._display_loop(mock.MagicMock(), mock.MagicMock())
+
+    display.reload_feeds.assert_called_once_with(confirm=False)
+    display.terminate.assert_called_once_with()
+
+
 def test_verify_does_not_construct_normal_database():
     with mock.patch("castero.__main__.Database") as database, mock.patch(
         "castero.__main__.run_verify", return_value=1

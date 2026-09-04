@@ -50,7 +50,12 @@ class ChronoPerspective(Perspective):
         """Create the menus used in each window."""
         assert all(window is not None for window in [self._episode_window])
 
-        self._episode_menu = ChronoMenu(self._episode_window, self._display.database, active=True)
+        self._episode_menu = ChronoMenu(
+            self._episode_window,
+            self._display.database,
+            active=True,
+            workers=self._display.workers,
+        )
 
     def display(self) -> None:
         """Draws all windows and sub-features, including titles and borders."""

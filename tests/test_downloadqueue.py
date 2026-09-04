@@ -1,16 +1,25 @@
 import os
 import threading
+import time
 from unittest import mock
 
 from castero.downloadqueue import DownloadQueue
 from castero.episode import Episode
 from castero.feed import Feed
+from castero.workers import WorkerManager
 
 my_dir = os.path.dirname(os.path.realpath(__file__))
 
 feed = Feed(file=my_dir + "/feeds/valid_basic.xml")
 episode1 = Episode(feed=feed, title="episode1 title")
 episode2 = Episode(feed=feed, title="episode2 title")
+
+
+def wait_for(predicate, timeout=1):
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        time.sleep(0.001)
+    return predicate()
 
 
 def test_downloadqueue_init():
@@ -55,7 +64,9 @@ def test_downloadqueue_remove_current_does_not_skip_next():
     mydownloadqueue.next()
 
     assert mydownloadqueue.length == 1
+    assert wait_for(lambda: second.download.call_count == 1)
     second.download.assert_called_once_with(mydownloadqueue, None)
+    mydownloadqueue.stop()
 
 
 def test_downloadqueue_advances_past_episode_without_enclosure():
@@ -68,8 +79,10 @@ def test_downloadqueue_advances_past_episode_without_enclosure():
 
     mydownloadqueue.start()
 
-    assert mydownloadqueue.length == 1
+    assert wait_for(lambda: mydownloadqueue.length == 1)
+    assert wait_for(lambda: next_episode.download.call_count == 1)
     next_episode.download.assert_called_once_with(mydownloadqueue, None)
+    mydownloadqueue.stop()
 
 
 def test_downloadqueue_start():
@@ -78,10 +91,12 @@ def test_downloadqueue_start():
     mydownloadqueue.add(episode1)
     episode1.download = mock.MagicMock(name="download")
     mydownloadqueue.start()
+    assert wait_for(lambda: episode1.download.call_count == 1)
     episode1.download.assert_called_with(
         mydownloadqueue,
         mydownloadqueue._display,
     )
+    mydownloadqueue.stop()
 
 
 def test_downloadqueue_first():
@@ -109,22 +124,18 @@ def test_downloadqueue_update():
 
 
 def test_downloadqueue_stop_cancels_and_joins_active_worker():
-    download_queue = DownloadQueue()
+    workers = WorkerManager(max_workers=1)
+    download_queue = DownloadQueue(workers=workers)
     episode = Episode(feed=feed, ep_id=1, title="active episode")
     started = threading.Event()
     finished = threading.Event()
 
     def download(queue, _display):
-        def work():
-            started.set()
-            while not queue.cancelled:
-                finished.wait(0.001)
-            finished.set()
-            queue.next()
-
-        worker = threading.Thread(target=work)
-        worker.start()
-        return worker
+        started.set()
+        while not queue.cancelled:
+            finished.wait(0.001)
+        finished.set()
+        queue.next()
 
     episode.download = download
     download_queue.add(episode)
@@ -136,3 +147,39 @@ def test_downloadqueue_stop_cancels_and_joins_active_worker():
     assert finished.is_set()
     assert download_queue.length == 0
     assert download_queue._worker is None
+    workers.shutdown()
+
+
+def test_downloadqueue_runs_download_on_managed_worker():
+    workers = WorkerManager(max_workers=1)
+    download_queue = DownloadQueue(workers=workers)
+    episode = Episode(feed=feed, ep_id=1, title="active episode")
+    owner_thread = threading.get_ident()
+    worker_threads = []
+    started = threading.Event()
+
+    def download(queue, _display):
+        worker_threads.append(threading.get_ident())
+        started.set()
+        queue.next()
+
+    episode.download = download
+    download_queue.add(episode)
+    download_queue.start()
+    assert started.wait(1)
+    download_queue.stop()
+
+    assert worker_threads
+    assert worker_threads != [owner_thread]
+    workers.shutdown()
+
+
+def test_downloadqueue_rejects_work_after_stop():
+    download_queue = DownloadQueue()
+    episode = Episode(feed=feed, ep_id=1, title="episode")
+
+    download_queue.stop()
+    download_queue.add(episode)
+    download_queue.start()
+
+    assert download_queue.length == 0
