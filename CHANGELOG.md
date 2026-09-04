@@ -29,6 +29,9 @@ handling for existing downloads without a checksum.
 after successful completion.
 
 **Fixed**
+* Feed refreshes now use RSS GUIDs as the primary episode identity, preserving
+progress, queue entries, and download metadata when titles are duplicated or
+enclosure URLs change.
 * Feed refreshes now honor `retain_absent_episodes`, preserving playback
 progress and saved queue entries for retained episodes.
 * Feed-menu filtering now renders and acts on the same feed and matches titles

@@ -24,6 +24,7 @@ class Episode:
         pubdate=None,
         copyright=None,
         enclosure=None,
+        guid=None,
         played=False,
         progress=None,
         download_path=None,
@@ -39,6 +40,7 @@ class Episode:
         :param pubdate (optional) the date the episode was published, as a string
         :param copyright (optional) the copyright notice of the episode
         :param enclosure (optional) a url to a media file
+        :param guid (optional) the opaque RSS identifier for the episode
         :param played (optional) whether the episode has been played
         :param download_path (optional) normalized path relative to the download root
         :param download_checksum (optional) trusted SHA-256 digest of the download
@@ -53,6 +55,7 @@ class Episode:
         self._pubdate = pubdate
         self._copyright = copyright
         self._enclosure = enclosure
+        self._guid = guid
         self._played = played
         self._progress = progress
         self._download_path = download_path
@@ -349,6 +352,11 @@ class Episode:
         if result is None:
             result = "Enclosure not available."
         return result
+
+    @property
+    def guid(self):
+        """str: the opaque RSS identifier for the episode, or None"""
+        return self._guid
 
     @property
     def played(self) -> bool:

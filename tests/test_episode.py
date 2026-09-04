@@ -12,6 +12,7 @@ link = "episode link"
 pubdate = "episode pubdate"
 copyright = "episode copyright"
 enclosure = "episode enclosure"
+guid = "episode guid"
 
 my_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -26,6 +27,7 @@ def test_episode_init():
         pubdate=pubdate,
         copyright=copyright,
         enclosure=enclosure,
+        guid=guid,
     )
     assert isinstance(myepisode, Episode)
 
@@ -40,6 +42,7 @@ def test_episode_properties():
         pubdate=pubdate,
         copyright=copyright,
         enclosure=enclosure,
+        guid=guid,
     )
     assert myepisode.title == title
     assert myepisode.description == description
@@ -47,6 +50,7 @@ def test_episode_properties():
     assert myepisode.pubdate == pubdate
     assert myepisode.copyright == copyright
     assert myepisode.enclosure == enclosure
+    assert myepisode.guid == guid
 
 
 def test_episode_only_title():
@@ -107,6 +111,12 @@ def test_episode_missing_property_enclosure():
     myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")
     myepisode = Episode(myfeed, title=title)
     assert myepisode.enclosure == "Enclosure not available."
+
+
+def test_episode_missing_property_guid():
+    myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")
+    myepisode = Episode(myfeed, title=title)
+    assert myepisode.guid is None
 
 
 def test_episode_playable_remote():

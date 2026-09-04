@@ -319,6 +319,7 @@ class Feed:
             item_pubdate = item.find("pubDate")
             item_copyright = item.find("copyright")
             item_enclosure = item.find("enclosure")
+            item_guid = item.find("guid")
 
             item_title_str = None
             item_description_str = None
@@ -326,6 +327,7 @@ class Feed:
             item_pubdate_str = None
             item_copyright_str = None
             item_enclosure_str = None
+            item_guid_str = None
 
             if item_title is not None and item_title.text is not None:
                 item_title_str = item_title.text.strip()
@@ -340,6 +342,8 @@ class Feed:
             if item_enclosure is not None:
                 if "url" in item_enclosure.attrib.keys():
                     item_enclosure_str = item_enclosure.attrib["url"]
+            if item_guid is not None and item_guid.text is not None:
+                item_guid_str = item_guid.text.strip() or None
 
             # if we were unable to find an enclosure for this episode,
             # don't add it
@@ -355,6 +359,7 @@ class Feed:
                     pubdate=item_pubdate_str,
                     copyright=item_copyright_str,
                     enclosure=item_enclosure_str,
+                    guid=item_guid_str,
                 )
             )
         return episodes

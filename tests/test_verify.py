@@ -9,7 +9,7 @@ from castero.database import Database
 from castero.verify import Verifier, run_verify
 
 
-def create_database(path, version=5):
+def create_database(path, version=6):
     connection = sqlite3.connect(str(path))
     for migration in sorted(os.listdir(Database.MIGRATIONS_DIR)):
         if int(migration.split("-")[0]) > version:
@@ -65,7 +65,7 @@ def test_verifier_does_not_create_missing_database(tmp_path):
 
 def test_verifier_does_not_migrate_database_during_scan(tmp_path):
     database_path = tmp_path / "castero.db"
-    create_database(database_path, version=4)
+    create_database(database_path, version=5)
     before = database_path.read_bytes()
 
     findings = Verifier(database_path, tmp_path / "downloaded").scan()
@@ -73,7 +73,7 @@ def test_verifier_does_not_migrate_database_during_scan(tmp_path):
     assert finding_codes(findings) == ["schema_outdated"]
     assert database_path.read_bytes() == before
     connection = sqlite3.connect(str(database_path))
-    assert connection.execute("pragma user_version").fetchone()[0] == 4
+    assert connection.execute("pragma user_version").fetchone()[0] == 5
     connection.close()
 
 
@@ -82,14 +82,14 @@ def test_verifier_rejects_tables_without_required_constraints(tmp_path):
     connection = sqlite3.connect(str(database_path))
     connection.executescript(
         """
-        pragma user_version=5;
+        pragma user_version=6;
         create table feed (
             key text, title text, description text, link text,
             last_build_date text, copyright text
         );
         create table episode (
             id integer, feed_key text, title text, description text, link text,
-            pubdate text, copyright text, enclosure text, played bit
+            pubdate text, copyright text, enclosure text, played bit, guid text
         );
         create table queue (id integer, ep_id integer);
         create table progress (ep_id integer, time integer);
@@ -110,7 +110,7 @@ def test_verifier_rejects_tables_without_required_constraints(tmp_path):
 
 def test_interactive_schema_migration_creates_backup(tmp_path):
     database_path = tmp_path / "castero.db"
-    create_database(database_path, version=4)
+    create_database(database_path, version=5)
 
     output = io.StringIO()
     status = run_verify(
@@ -123,7 +123,8 @@ def test_interactive_schema_migration_creates_backup(tmp_path):
 
     assert status == 0, output.getvalue()
     connection = sqlite3.connect(str(database_path))
-    assert connection.execute("pragma user_version").fetchone()[0] == 5
+    assert connection.execute("pragma user_version").fetchone()[0] == 6
+    assert connection.execute("select guid from episode").fetchone()[0] is None
     connection.close()
     assert list(tmp_path.glob("castero.db.verify-backup-*"))
 

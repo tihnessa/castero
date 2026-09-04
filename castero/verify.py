@@ -39,7 +39,7 @@ class _RepairDownloadQueue:
 class Verifier:
     """Inspect and optionally repair the persisted database and downloads."""
 
-    CURRENT_SCHEMA_VERSION = 5
+    CURRENT_SCHEMA_VERSION = 6
     HASH_CHUNK_SIZE = 64 * 1024
     REQUIRED_COLUMNS = {
         "feed": {"key", "title", "description", "link", "last_build_date", "copyright"},
@@ -53,6 +53,7 @@ class Verifier:
             "copyright",
             "enclosure",
             "played",
+            "guid",
         },
         "queue": {"id", "ep_id"},
         "progress": {"ep_id", "time"},
@@ -77,6 +78,7 @@ class Verifier:
             "copyright": ("TEXT", False, 0, None),
             "enclosure": ("TEXT", False, 0, None),
             "played": ("BIT", True, 0, "0"),
+            "guid": ("TEXT", False, 0, None),
         },
         "queue": {
             "id": ("INTEGER", False, 1, None),
@@ -249,6 +251,8 @@ class Verifier:
             required_columns = set(self.REQUIRED_COLUMNS[table])
             if table == "episode" and version < 2:
                 required_columns.discard("played")
+            if table == "episode" and version < 6:
+                required_columns.discard("guid")
             missing = required_columns - set(columns)
             if missing:
                 invalid.append(

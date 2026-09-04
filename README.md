@@ -166,6 +166,14 @@ including absent episodes when retention is enabled. Deleting a feed also
 deletes its downloaded episodes. These files are not intended to be manually
 modified.
 
+Episode identity during refresh is based first on the RSS `guid`, treated as an
+opaque string. For feeds without a usable GUID, castero falls back to enclosure
+URLs and then unambiguous legacy metadata. Two different non-empty GUIDs are
+always treated as different episodes, even when their titles or enclosure URLs
+match. This keeps playback progress, queue entries, and download metadata
+attached to the correct episode when publishers reuse titles or change media
+URLs.
+
 ### Platform troubleshooting
 
 - If startup says curses is unavailable on Windows, reinstall castero so its
