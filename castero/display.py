@@ -1,6 +1,7 @@
 import curses
 import glob
 import importlib
+import os
 import re
 import shlex
 import subprocess
@@ -656,11 +657,30 @@ class Display:
         placeholder = re.compile(
             r"\{(?:file|title|description|link|pubdate|copyright)\}"
         )
+        has_episode_fields = any(
+            placeholder.search(argument) for argument in command
+        )
         command = [
             placeholder.sub(lambda match: substitutions[match.group(0)], argument)
             for argument in command
         ]
-        subprocess.Popen(command, shell=False)
+
+        executable = command[0].rstrip(" .").lower()
+        if (
+            os.name == "nt"
+            and has_episode_fields
+            and executable.endswith((".bat", ".cmd"))
+        ):
+            self.change_status(
+                "Invalid execute_command: Windows batch files cannot safely "
+                "receive episode fields"
+            )
+            return
+
+        try:
+            subprocess.Popen(command, shell=False)
+        except OSError as error:
+            self.change_status("Unable to execute command: %s" % str(error))
 
     def show_episode_url(self, episode: Episode) -> None:
         """Show episode URL in status line.

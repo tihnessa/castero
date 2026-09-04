@@ -426,6 +426,46 @@ def test_display_execute_command_malformed_template_reports_error(display):
     assert display._status == "Invalid execute_command: No closing quotation"
 
 
+@pytest.mark.parametrize("extension", [".bat", ".CMD"])
+def test_display_execute_command_rejects_windows_batch_with_episode_fields(
+    display, extension
+):
+    castero.config.Config.data = {
+        "execute_command": "hook%s {title}" % extension
+    }
+    myepisode = Episode(
+        Feed(url="feed", title="feed"), title="episode & echo unsafe"
+    )
+
+    with mock.patch("castero.display.os.name", "nt"), mock.patch(
+        "castero.display.subprocess.Popen"
+    ) as popen:
+        display.execute_command(myepisode)
+
+    popen.assert_not_called()
+    assert display._status == (
+        "Invalid execute_command: Windows batch files cannot safely receive "
+        "episode fields"
+    )
+
+
+def test_display_execute_command_reports_process_start_failure(display):
+    castero.config.Config.data = {"execute_command": "missing-player {file}"}
+    myepisode = Episode(
+        Feed(url="feed", title="feed"),
+        title="episode",
+        enclosure="episode file",
+    )
+
+    with mock.patch(
+        "castero.display.subprocess.Popen",
+        side_effect=OSError("executable not found"),
+    ):
+        display.execute_command(myepisode)
+
+    assert display._status == "Unable to execute command: executable not found"
+
+
 def test_display_color_numbers(display):
     assert display.color_number("2") == 2
     assert display.color_number("3") == 3
