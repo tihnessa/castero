@@ -131,6 +131,34 @@ def test_display_update(display):
     assert display._status == ""
 
 
+def test_display_update_deletes_completed_episode_progress(display):
+    feed = Feed(url="feed url", title="feed title")
+    episode = Episode(feed, title="episode title")
+    display.database.replace_feed(feed)
+    display.database.replace_episode(feed, episode)
+    display.database.replace_progress(episode, 1000)
+    display.database.delete_progress = mock.MagicMock(
+        wraps=display.database.delete_progress
+    )
+    display.database.replace_progress = mock.MagicMock(
+        wraps=display.database.replace_progress
+    )
+    player = mock.MagicMock(spec=castero.player.Player)
+    player.episode = episode
+    player.duration = 10000
+    player.time = 10000
+    display.queue.add(player)
+
+    display.update()
+
+    persisted_episode = display.database.episode(episode.ep_id)
+    assert bool(persisted_episode.played) is True
+    assert persisted_episode.progress == 0
+    assert persisted_episode.has_saved_progress is False
+    display.database.delete_progress.assert_called_once_with(episode)
+    display.database.replace_progress.assert_not_called()
+
+
 def test_display_nonempty(display):
     myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")
     display.database.feeds = mock.MagicMock(return_value=[myfeed])

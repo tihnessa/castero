@@ -182,6 +182,8 @@ By default, castero works from an in-memory copy and writes it to `castero.db`
 on clean shutdown. The preceding on-disk database is retained as
 `castero.db.old`, replacing an earlier backup when necessary. Pending
 played/unplayed episode changes are flushed before the database is closed.
+When playback reaches the end of an episode, its saved resume position is
+removed rather than retained as a zero-valued progress record.
 Refreshing feeds preserves queue entries for episodes that remain stored,
 including absent episodes when retention is enabled. Deleting a feed also
 deletes its downloaded episodes. These files are not intended to be manually
