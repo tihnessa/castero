@@ -368,6 +368,11 @@ class Episode:
         self._played = played
 
     @property
+    def has_saved_progress(self) -> bool:
+        """bool: whether an explicit playback resume position is stored"""
+        return self._progress is not None
+
+    @property
     def progress(self) -> int:
         """int: progress in milliseconds gathered from database"""
         progress = self._progress

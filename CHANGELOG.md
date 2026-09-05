@@ -29,6 +29,8 @@ handling for existing downloads without a checksum.
 after successful completion.
 
 **Fixed**
+* Completed episodes now remove their saved playback position instead of
+storing a zero-valued progress record.
 * External episode commands now pass feed metadata as literal process arguments
 without invoking a shell, preventing shell injection. Existing shell-based
 `execute_command` templates must be moved into a separate script. Windows batch

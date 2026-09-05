@@ -296,6 +296,22 @@ def test_episode_without_progress():
     assert episode.progress == 0
 
 
+def test_episode_saved_progress_distinguishes_unset_from_zero():
+    myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")
+    episode = myfeed.parse_episodes()[0]
+
+    assert episode.progress == 0
+    assert episode.has_saved_progress is False
+
+    episode.progress = 0
+    assert episode.progress == 0
+    assert episode.has_saved_progress is True
+
+    episode.progress = None
+    assert episode.progress == 0
+    assert episode.has_saved_progress is False
+
+
 def test_episode_progress():
     myfeed = Feed(file=my_dir + "/feeds/valid_basic.xml")
     episode = myfeed.parse_episodes()[0]

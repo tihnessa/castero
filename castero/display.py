@@ -800,10 +800,10 @@ class Display:
             return
         for episode in self._modified_episodes:
             self.database.replace_episode(episode._feed, episode)
-            if episode.progress is None:
-                self.database.delete_progress(episode)
-            else:
+            if episode.has_saved_progress:
                 self.database.replace_progress(episode, episode.progress)
+            else:
+                self.database.delete_progress(episode)
         self._modified_episodes = []
 
     def invalidate_menus(self) -> None:

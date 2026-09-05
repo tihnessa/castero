@@ -189,6 +189,25 @@ def test_queue_toggle(display):
     assert player1.pause.call_count == 1
 
 
+def test_queue_update_clears_saved_progress_on_completion(display):
+    myqueue = Queue(display)
+    episode = feed.parse_episodes()[0]
+    episode.progress = 1000
+    player = mock.MagicMock(spec=Player)
+    player.episode = episode
+    player.duration = 10000
+    player.time = 10000
+    myqueue.add(player)
+
+    myqueue.update()
+
+    assert episode.played is True
+    assert episode.progress == 0
+    assert episode.has_saved_progress is False
+    assert episode in display.modified_episodes
+    assert myqueue.length == 0
+
+
 def test_queue_seek_forward(display):
     myqueue = Queue(display)
     player1 = mock.MagicMock(spec=Player)
