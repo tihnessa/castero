@@ -1,10 +1,19 @@
 import curses
 import os
+import tempfile
+import threading
 from unittest import mock
 
 import pytest
 
 from gevent import monkey
+
+# Keep test-created configuration, databases, and downloads out of a
+# developer's real XDG directories.  These must be set before castero imports
+# DataFile, which resolves the paths at import time.
+TEST_XDG_ROOT = tempfile.mkdtemp(prefix="castero-pytest-")
+os.environ["XDG_CONFIG_HOME"] = os.path.join(TEST_XDG_ROOT, "config")
+os.environ["XDG_DATA_HOME"] = os.path.join(TEST_XDG_ROOT, "data")
 
 monkey.patch_all(thread=False, select=False)
 
@@ -12,6 +21,27 @@ import castero.config
 from castero.datafile import DataFile
 from castero.display import Display
 from castero.database import Database
+
+
+@pytest.fixture(autouse=True)
+def run_background_work_synchronously(monkeypatch):
+    """Prevent UI worker threads from outliving their test's database/window."""
+
+    original_start = threading.Thread.start
+
+    def run(thread):
+        target_module = getattr(thread._target, "__module__", "")
+        if not target_module.startswith(("castero.menus", "castero.database")):
+            return original_start(thread)
+
+        try:
+            thread.run()
+        except curses.error:
+            # Some unit tests intentionally construct menus without curses.
+            # Their production worker would otherwise report this asynchronously.
+            pass
+
+    monkeypatch.setattr(threading.Thread, "start", run)
 
 
 class Helpers:

@@ -25,7 +25,8 @@ $ pip3 install castero --upgrade
 ```bash
 $ git clone https://github.com/xgi/castero
 $ cd castero
-$ sudo python setup.py install
+$ uv sync
+$ uv run castero
 ```
 
 ## Dependencies
@@ -101,17 +102,20 @@ castero to replace it with an empty one the next time you run the client.
 
 ## Testing
 
-This project uses [pytest](https://pytest.org) for testing. To run tests, run
-the following command in the project's root directory:
+Install [uv](https://docs.astral.sh/uv/) and create the locked development
+environment from the project's root directory:
 
 ```bash
-$ python -m pytest tests
+$ uv sync
 ```
 
-You can also run tests for an individual unit, i.e.:
+The standard checks are:
 
 ```bash
-$ python -m pytest tests/test_feed.py
+$ uv lock --check
+$ uv run ruff check .
+$ uv run pytest
+$ uv run mypy
 ```
 
 ## License

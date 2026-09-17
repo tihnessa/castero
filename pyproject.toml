@@ -1,0 +1,62 @@
+[project]
+name = "castero"
+version = "0.9.5"
+description = "A TUI podcast client for the terminal"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "xgi", email = "xgi@faltro.com" }]
+requires-python = ">=3.9"
+dependencies = [
+    "beautifulsoup4>=4.10.0",
+    "cjkwrap>=2.2",
+    "grequests>=0.6.0",
+    "lxml>=4.9.1",
+    "python-mpv>=0.5.2",
+    "python-vlc>=3.0.12118",
+    "pytz>=2021.3",
+    "requests[socks]>=2.24.0",
+]
+
+[project.scripts]
+castero = "castero.__main__:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18.2",
+    "pytest>=8.4.2",
+    "ruff>=0.16.0",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["castero*"]
+
+[tool.setuptools.package-data]
+castero = ["templates/*", "templates/migrations/*"]
+
+[tool.mypy]
+python_version = "3.9"
+files = ["castero"]
+ignore_missing_imports = true
+# The project is adopting mypy incrementally. Keep the command usable while
+# existing annotations are corrected, then remove this baseline setting.
+ignore_errors = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+src = ["castero", "tests"]
+
+[tool.ruff.lint]
+# The codebase predates the formatter and uses import-after-monkey-patch
+# initialization, so apply Ruff's correctness rules without style churn.
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E402"]
