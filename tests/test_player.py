@@ -2,7 +2,6 @@ import os
 from unittest import mock
 
 import pytest
-import castero.config
 from castero.config import Config
 from castero.episode import Episode
 from castero.feed import Feed

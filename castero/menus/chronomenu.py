@@ -2,7 +2,6 @@ import curses
 import threading
 
 from castero.episode import Episode
-from castero.feed import Feed
 from castero.menu import Menu
 from castero import helpers
 
